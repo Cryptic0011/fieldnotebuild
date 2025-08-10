@@ -3,23 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inspection Note Builder - Advanced</title>
+    <title>Adjuster Tools</title>
     <style>
         :root {
-            --primary-color: #4a90e2;
-            --primary-dark: #357ABD;
-            --secondary-color: #50e3c2;
-            --background-color: #f7f9fc;
+            --primary-color: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary-color: #93c5fd;
+            --background-color: #f1f5f9;
             --card-background: #ffffff;
-            --text-color: #4a4a4a;
-            --light-text-color: #9b9b9b;
-            --border-color: #e6e6e6;
-            --danger-color: #e74c3c;
-            --danger-dark: #c0392b;
-            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            --text-color: #1e293b;
+            --light-text-color: #64748b;
+            --border-color: #cbd5e1;
+            --danger-color: #ef4444;
+            --danger-dark: #dc2626;
+            --font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         }
 
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 
         body {
             font-family: var(--font-family);
@@ -27,12 +27,48 @@
             color: var(--text-color);
             margin: 0;
             padding: 2rem;
-            padding-left: 80px; /* Space for the buttons */
         }
 
         #root {
             max-width: 900px;
             margin: 0 auto;
+        }
+        
+        .tabs {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 2rem;
+            background: var(--card-background);
+            border-radius: 8px;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .tab-button {
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--text-color);
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+            border-radius: 6px;
+        }
+
+        .tab-button.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
         }
 
         h1 {
@@ -40,9 +76,7 @@
             font-weight: 700;
             text-align: center;
             margin-bottom: 2.5rem;
-            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--primary-dark);
         }
 
         h2, h4 {
@@ -93,7 +127,7 @@
         select:focus {
             outline: none;
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
         textarea {
@@ -102,7 +136,7 @@
         }
 
         button {
-            background: linear-gradient(90deg, var(--primary-color), var(--primary-dark));
+            background: var(--primary-color);
             color: white;
             padding: 0.8rem 1.5rem;
             border: none;
@@ -116,6 +150,7 @@
         }
 
         button:hover {
+            background: var(--primary-dark);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
         }
@@ -151,7 +186,7 @@
 
         .section-wrapper {
             position: relative;
-            margin-bottom: 2rem; /* This creates the space for the button */
+            margin-bottom: 2rem;
         }
         
         .add-between-btn {
@@ -227,6 +262,165 @@
         .copy-btn:hover {
             background: #229954;
         }
+
+        /* Photo Report Styles */
+        #photo-drop-zone {
+            border: 3px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 3rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: var(--card-background);
+        }
+        #photo-drop-zone.dragover {
+            border-color: var(--primary-color);
+            background-color: #eff6ff;
+        }
+        #photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }d
+        .photo-card {
+            background: var(--card-background);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+        .photo-container {
+            position: relative;
+            width: 100%;
+            padding-top: 75%; /* 4:3 Aspect Ratio */
+            overflow: hidden;
+            background: #eee;
+        }
+        .photo-card img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            transition: transform 0.3s ease;
+            transform-origin: center;
+        }
+        .rotate-buttons {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .photo-container:hover .rotate-buttons {
+            opacity: 1;
+        }
+        .rotate-buttons button {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            font-size: 1.2rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .photo-card.selected {
+            outline: 3px solid var(--primary-color);
+            box-shadow: 0 8px 30px rgba(37, 99, 235, 0.4);
+        }
+        .rotate-buttons button.delete-btn {
+            background: var(--danger-color);
+        }
+        .rotate-buttons button.delete-btn:hover {
+            background: var(--danger-dark);
+        }
+        .photo-card-caption {
+            padding: 1rem;
+        }
+        .photo-card-caption textarea {
+            min-height: 60px;
+            margin-bottom: 0;
+        }
+        
+        #print-content {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+        }
+
+        .photo-card img.rotated-grid {
+            max-width: 100%;
+            max-height: 100%;
+            height: auto;
+            transform-origin: center;
+        }
+
+        @media print {
+            @page { 
+                size: letter portrait; 
+                margin: 0 !important; 
+            }
+            body * {
+                visibility: hidden;
+            }
+            #print-content, #print-content * {
+                visibility: visible;
+            }
+            #print-content {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+            .photo-report-page {
+                page-break-after: always;
+                width: 100%;
+                height: 10in; /* Adjusted for better fit */
+                display: flex;
+                flex-direction: column;
+                justify-content: space-around;
+                align-items: center;
+                background: white;
+                padding: 0.5in;
+                box-sizing: border-box;
+            }
+            .photo-report-item {
+                width: 100%;
+                text-align: center;
+                flex: 1; /* Allow items to grow and shrink */
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                max-height: 5in; /* Max height for each photo item */
+                overflow: hidden; /* Prevent rotated images from overlapping */
+            }
+            .photo-report-item img {
+                max-width: 100%;
+                max-height: 4.5in; /* Max height for the image itself */
+                object-fit: contain;
+                border: 1px solid #ccc;
+            }
+             .photo-report-item img.rotated-print {
+                max-height: 7in; 
+                max-width: 4.5in;
+            }
+             .photo-report-item p {
+                margin-top: 0.25in;
+                font-size: 12pt;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -235,11 +429,38 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const App = () => {
+            const [activeTab, setActiveTab] = useState('inspection');
+
+            return (
+                <div>
+                    <h1>Adjuster Tools</h1>
+                    <div className="tabs">
+                        <button className={`tab-button ${activeTab === 'inspection' ? 'active' : ''}`} onClick={() => setActiveTab('inspection')}>
+                            Inspection Builder
+                        </button>
+                        <button className={`tab-button ${activeTab === 'photo' ? 'active' : ''}`} onClick={() => setActiveTab('photo')}>
+                            Photo Report
+                        </button>
+                    </div>
+
+                    <div id="inspection-builder" className={`tab-content ${activeTab === 'inspection' ? 'active' : ''}`}>
+                        <InspectionBuilder />
+                    </div>
+                    <div id="photo-report" className={`tab-content ${activeTab === 'photo' ? 'active' : ''}`}>
+                        <PhotoReportBuilder />
+                    </div>
+                </div>
+            );
+        }
+
+        const InspectionBuilder = () => {
             const [participants, setParticipants] = useState([{ id: Date.now(), name: 'Insured' }]);
             const [customSections, setCustomSections] = useState([]);
             
@@ -412,14 +633,13 @@
             
             return (
                 <div>
-                    <h1>Inspection Note Builder</h1>
                     {mainSectionOrder.map(sectionId => {
                         const customSection = customSections.find(s => s.insertAfterId === sectionId);
                         const hasCustomSection = !!customSection;
 
                         return (
                             <React.Fragment key={sectionId}>
-                                <div className="section-wrapper">
+                                <div className="section-wrapper" style={{'padding-left': '80px'}}>
                                     <div className="section-card">{componentMap[sectionId]}</div>
                                     {sectionId !== 'finalNote' && (
                                         <button 
@@ -431,7 +651,7 @@
                                     )}
                                 </div>
                                 {hasCustomSection && (
-                                    <div className="custom-section-card">
+                                    <div className="custom-section-card" style={{'margin-left': '80px'}}>
                                         <h4>Custom Note</h4>
                                         <textarea value={customSection.content} onChange={e => updateCustomSection(customSection.id, e.target.value)} placeholder="Enter custom notes here..."/>
                                     </div>
@@ -443,6 +663,197 @@
             );
         }
         
+        const PhotoReportBuilder = () => {
+            const [photos, setPhotos] = useState([]);
+            const [selectedPhotos, setSelectedPhotos] = useState(new Set());
+            const dropZoneRef = useRef(null);
+            const fileInputRef = useRef(null);
+            const lastSelectedId = useRef(null);
+
+            const handleFileChange = (e) => {
+                const files = Array.from(e.target.files);
+                processFiles(files);
+            };
+
+            const processFiles = (files) => {
+                const imageFiles = files.filter(file => file.type.startsWith('image/'));
+                const newPhotos = imageFiles.map(file => ({
+                    id: Date.now() + Math.random(),
+                    src: URL.createObjectURL(file),
+                    caption: '',
+                    rotation: 0,
+                    file: file
+                }));
+                setPhotos(prev => [...prev, ...newPhotos]);
+            };
+            
+            const updateCaption = (id, caption) => {
+                setPhotos(prev => prev.map(p => p.id === id ? {...p, caption} : p));
+            };
+
+            const handleCaptionKeyDown = (e, id) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const caption = e.target.value;
+                    if (selectedPhotos.has(id)) {
+                        // Apply to all selected
+                        setPhotos(prev => prev.map(p => selectedPhotos.has(p.id) ? { ...p, caption } : p));
+                    } else {
+                        // Apply to just this one
+                        updateCaption(id, caption);
+                    }
+                }
+            };
+
+            const rotatePhoto = (id, direction) => {
+                setPhotos(prev => prev.map(p => {
+                    if (p.id === id) {
+                        const newRotation = p.rotation + (direction === 'left' ? -90 : 90);
+                        return { ...p, rotation: newRotation };
+                    }
+                    return p;
+                }));
+            };
+
+            const removePhoto = (id) => {
+                setPhotos(prev => prev.filter(p => p.id !== id));
+                setSelectedPhotos(prev => {
+                    const newSelection = new Set(prev);
+                    newSelection.delete(id);
+                    return newSelection;
+                });
+            };
+
+            const handlePhotoClick = (e, id) => {
+                const newSelection = new Set(selectedPhotos);
+                if (e.shiftKey && lastSelectedId.current) {
+                    const lastIndex = photos.findIndex(p => p.id === lastSelectedId.current);
+                    const currentIndex = photos.findIndex(p => p.id === id);
+                    const start = Math.min(lastIndex, currentIndex);
+                    const end = Math.max(lastIndex, currentIndex);
+                    for (let i = start; i <= end; i++) {
+                        newSelection.add(photos[i].id);
+                    }
+                } else if (e.ctrlKey) {
+                    if (newSelection.has(id)) {
+                        newSelection.delete(id);
+                    } else {
+                        newSelection.add(id);
+                    }
+                } else {
+                    newSelection.clear();
+                    newSelection.add(id);
+                }
+                setSelectedPhotos(newSelection);
+                lastSelectedId.current = id;
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneRef.current.classList.remove('dragover');
+                const files = Array.from(e.dataTransfer.files);
+                processFiles(files);
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneRef.current.classList.add('dragover');
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneRef.current.classList.remove('dragover');
+            };
+            
+            const generatePdf = () => {
+                window.print();
+            };
+
+            return (
+                <div>
+                    <div id="photo-controls" className="section-card no-print">
+                        <h2>Photo Report Builder</h2>
+                        <input type="file" multiple accept="image/*" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
+                        <div 
+                            id="photo-drop-zone" 
+                            ref={dropZoneRef}
+                            onClick={() => fileInputRef.current.click()}
+                            onDrop={handleDrop}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                        >
+                            <p>Drag & drop photos here, or click to select files.</p>
+                        </div>
+                        <div style={{marginTop: '1rem'}}>
+                            <button onClick={generatePdf} disabled={photos.length === 0}>Print to PDF</button>
+                        </div>
+                    </div>
+
+                    <div id="photo-grid" className="no-print">
+                        {photos.map(photo => (
+                            <div 
+                                key={photo.id} 
+                                className={`photo-card ${selectedPhotos.has(photo.id) ? 'selected' : ''}`}
+                                onClick={(e) => handlePhotoClick(e, photo.id)}
+                            >
+                                <div className="photo-container">
+                                    <img 
+                                        src={photo.src} 
+                                        className={photo.rotation % 180 !== 0 ? 'rotated-grid' : ''}
+                                        style={{ transform: `rotate(${photo.rotation}deg)` }} 
+                                    />
+                                    <div className="rotate-buttons">
+                                        <button onClick={(e) => {e.stopPropagation(); removePhoto(photo.id);}}>X</button>
+                                        <button onClick={(e) => {e.stopPropagation(); rotatePhoto(photo.id, 'left');}}>↺</button>
+                                        <button onClick={(e) => {e.stopPropagation(); rotatePhoto(photo.id, 'right');}}>↻</button>
+                                    </div>
+                                </div>
+                                <div className="photo-card-caption">
+                                    <textarea 
+                                        value={photo.caption} 
+                                        onChange={(e) => updateCaption(photo.id, e.target.value)}
+                                        onKeyDown={(e) => handleCaptionKeyDown(e, photo.id)}
+                                        placeholder="Enter caption..."
+                                        onClick={(e) => e.stopPropagation()} // Prevent card selection when clicking textarea
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div id="print-content">
+                        {photos.map((photo, index) => (
+                            (index % 2 === 0) && (
+                                <div className="photo-report-page" key={`page-${index}`}>
+                                    <div className="photo-report-item">
+                                        <img 
+                                            src={photos[index].src} 
+                                            className={photos[index].rotation % 180 !== 0 ? 'rotated-print' : ''}
+                                            style={{ transform: `rotate(${photos[index].rotation}deg)` }} 
+                                        />
+                                        <p>{photos[index].caption}</p>
+                                    </div>
+                                    {photos[index + 1] && (
+                                        <div className="photo-report-item">
+                                            <img 
+                                                src={photos[index + 1].src} 
+                                                className={photos[index + 1].rotation % 180 !== 0 ? 'rotated-print' : ''}
+                                                style={{ transform: `rotate(${photos[index + 1].rotation}deg)` }} 
+                                            />
+                                            <p>{photos[index + 1].caption}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
         const Section = ({ title, children }) => (
             <>
                 <h2>{title}</h2>
