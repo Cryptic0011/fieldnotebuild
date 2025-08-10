@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Graysons Tools</title>
+    <title>Adjuster Tools</title>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -229,7 +229,6 @@
              background-color: var(--danger-dark);
              border-color: var(--danger-dark);
         }
-        
 
         .custom-section-card {
              margin-top: 2rem;
@@ -283,7 +282,7 @@
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 1.5rem;
             margin-top: 2rem;
-        }d
+        }
         .photo-card {
             background: var(--card-background);
             border-radius: 12px;
@@ -401,19 +400,18 @@
                 flex: 1; /* Allow items to grow and shrink */
                 display: flex;
                 flex-direction: column;
-                justify-content: center;
+                justify-content: flex-start;
                 align-items: center;
-                max-height: 5in; /* Max height for each photo item */
-                overflow: hidden; /* Prevent rotated images from overlapping */
+                /* Allow content to size naturally so captions are not clipped */
             }
             .photo-report-item img {
                 max-width: 100%;
-                max-height: 4.5in; /* Max height for the image itself */
+                max-height: 4in; /* Leave room for caption */
                 object-fit: contain;
                 border: 1px solid #ccc;
             }
              .photo-report-item img.rotated-print {
-                max-height: 7in; 
+                max-height: 4in; 
                 max-width: 4.5in;
             }
              .photo-report-item p {
@@ -441,7 +439,7 @@
 
             return (
                 <div>
-                    <h1>Graysons Tools</h1>
+                    <h1>Adjuster Tools</h1>
                     <div className="tabs">
                         <button className={`tab-button ${activeTab === 'inspection' ? 'active' : ''}`} onClick={() => setActiveTab('inspection')}>
                             Inspection Builder
@@ -877,4 +875,3 @@
     </script>
 </body>
 </html>
-
