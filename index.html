@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Adjuster Tools</title>
+    <title>Graysons Tools</title>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -394,6 +394,10 @@
                 padding: 0.5in;
                 box-sizing: border-box;
             }
+            /* Single photo per page layout adjustments */
+            .photo-report-page.single {
+                justify-content: center;
+            }
             .photo-report-item {
                 width: 100%;
                 text-align: center;
@@ -413,6 +417,14 @@
              .photo-report-item img.rotated-print {
                 max-height: 4in; 
                 max-width: 4.5in;
+            }
+            .photo-report-page.single .photo-report-item img {
+                max-height: 8in;
+                max-width: 100%;
+            }
+            .photo-report-page.single .photo-report-item img.rotated-print {
+                max-height: 8in;
+                max-width: 7.5in;
             }
              .photo-report-item p {
                 margin-top: 0.25in;
@@ -439,7 +451,7 @@
 
             return (
                 <div>
-                    <h1>Adjuster Tools</h1>
+                    <h1>Graysons Tools</h1>
                     <div className="tabs">
                         <button className={`tab-button ${activeTab === 'inspection' ? 'active' : ''}`} onClick={() => setActiveTab('inspection')}>
                             Inspection Builder
@@ -668,6 +680,8 @@
             const dropZoneRef = useRef(null);
             const fileInputRef = useRef(null);
             const lastSelectedId = useRef(null);
+            const [photosPerPage, setPhotosPerPage] = useState(2);
+            const [compression, setCompression] = useState('regular');
 
             const handleFileChange = (e) => {
                 const files = Array.from(e.target.files);
@@ -767,8 +781,109 @@
                 dropZoneRef.current.classList.remove('dragover');
             };
             
-            const generatePdf = () => {
-                window.print();
+            const generatePdf = async () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                const margin = 0.5;
+                const contentWidth = pageWidth - margin * 2;
+                const contentHeight = pageHeight - margin * 2;
+
+                const settingsMap = {
+                    regular: { dpi: 144, quality: 0.92 },
+                    smaller: { dpi: 120, quality: 0.82 },
+                    smallest: { dpi: 96, quality: 0.72 },
+                };
+                const { dpi, quality } = settingsMap[compression] || settingsMap.regular;
+
+                const loadImage = (src) => new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = src;
+                });
+
+                const drawPhoto = async (photo, xIn, yIn, maxWidthIn, maxImageHeightIn) => {
+                    const img = await loadImage(photo.src);
+                    const rotation = ((photo.rotation || 0) % 360 + 360) % 360;
+                    const rotated = rotation % 180 !== 0;
+
+                    const originalWidth = img.naturalWidth || img.width;
+                    const originalHeight = img.naturalHeight || img.height;
+                    const orientedWidth = rotated ? originalHeight : originalWidth;
+                    const orientedHeight = rotated ? originalWidth : originalHeight;
+                    const aspect = orientedWidth / orientedHeight;
+
+                    let targetWidthIn = Math.min(maxWidthIn, maxImageHeightIn * aspect);
+                    let targetHeightIn = targetWidthIn / aspect;
+                    if (targetHeightIn > maxImageHeightIn) {
+                        targetHeightIn = maxImageHeightIn;
+                        targetWidthIn = targetHeightIn * aspect;
+                    }
+
+                    const targetWidthPx = Math.max(1, Math.round(targetWidthIn * dpi));
+                    const targetHeightPx = Math.max(1, Math.round(targetHeightIn * dpi));
+
+                    const canvas = document.createElement('canvas');
+                    // If rotating 90/270 deg, the drawing box swaps
+                    canvas.width = rotated ? targetHeightPx : targetWidthPx;
+                    canvas.height = rotated ? targetWidthPx : targetHeightPx;
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, canvas.height / 2);
+                    if (rotation !== 0) {
+                        ctx.rotate((rotation * Math.PI) / 180);
+                    }
+                    const drawWidthPx = rotated ? targetWidthPx : targetWidthPx;
+                    const drawHeightPx = rotated ? targetHeightPx : targetHeightPx;
+                    ctx.drawImage(img, -drawWidthPx / 2, -drawHeightPx / 2, drawWidthPx, drawHeightPx);
+                    ctx.restore();
+
+                    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                    const offsetXIn = xIn + (maxWidthIn - targetWidthIn) / 2;
+                    doc.addImage(dataUrl, 'JPEG', offsetXIn, yIn, targetWidthIn, targetHeightIn, undefined, 'FAST');
+                    return { imageHeightIn: targetHeightIn };
+                };
+
+                let index = 0;
+                let isFirstPage = true;
+                while (index < photos.length) {
+                    if (!isFirstPage) doc.addPage();
+                    isFirstPage = false;
+
+                    if (photosPerPage === 2) {
+                        const slotHeightIn = contentHeight / 2;
+                        const imageMaxHeightIn = slotHeightIn - 0.7;
+                        let yIn = margin;
+                        for (let slot = 0; slot < 2 && index < photos.length; slot++) {
+                            const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
+                            const caption = photos[index].caption || '';
+                            const captionY = yIn + imageHeightIn + 0.2;
+                            const lines = doc.splitTextToSize(caption, contentWidth);
+                            doc.setFontSize(12);
+                            doc.text(lines, margin, captionY, { maxWidth: contentWidth });
+                            index++;
+                            yIn += slotHeightIn;
+                        }
+                    } else {
+                        const imageMaxHeightIn = contentHeight - 1.0;
+                        const { imageHeightIn } = await drawPhoto(photos[index], margin, margin, contentWidth, imageMaxHeightIn);
+                        const caption = photos[index].caption || '';
+                        const captionY = margin + imageHeightIn + 0.3;
+                        const lines = doc.splitTextToSize(caption, contentWidth);
+                        doc.setFontSize(12);
+                        doc.text(lines, margin, captionY, { maxWidth: contentWidth });
+                        index++;
+                    }
+                }
+
+                doc.save('PhotoReport.pdf');
             };
 
             return (
@@ -786,8 +901,26 @@
                         >
                             <p>Drag & drop photos here, or click to select files.</p>
                         </div>
-                        <div style={{marginTop: '1rem'}}>
-                            <button onClick={generatePdf} disabled={photos.length === 0}>Print to PDF</button>
+                        <div style={{ display: 'flex', gap: '2rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                            <div>
+                                <label style={{ fontWeight: 600 }}>Photos per page</label>
+                                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                                    <label><input type="radio" name="ppp" value="2" checked={photosPerPage === 2} onChange={() => setPhotosPerPage(2)} /> 2 per page</label>
+                                    <label><input type="radio" name="ppp" value="1" checked={photosPerPage === 1} onChange={() => setPhotosPerPage(1)} /> 1 per page</label>
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ fontWeight: 600 }}>PDF/Photo compression</label>
+                                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                                    <label><input type="radio" name="compression" value="regular" checked={compression === 'regular'} onChange={() => setCompression('regular')} /> Regular</label>
+                                    <label><input type="radio" name="compression" value="smaller" checked={compression === 'smaller'} onChange={() => setCompression('smaller')} /> Smaller</label>
+                                    <label><input type="radio" name="compression" value="smallest" checked={compression === 'smallest'} onChange={() => setCompression('smallest')} /> Smallest</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap'}}>
+                            <button onClick={generatePdf} disabled={photos.length === 0}>Generate PDF</button>
+                            <button onClick={() => window.print()} disabled={photos.length === 0}>Print Preview</button>
                         </div>
                     </div>
 
@@ -824,30 +957,45 @@
                     </div>
                     
                     <div id="print-content">
-                        {photos.map((photo, index) => (
-                            (index % 2 === 0) && (
-                                <div className="photo-report-page" key={`page-${index}`}>
-                                    <div className="photo-report-item">
-                                        <img 
-                                            src={photos[index].src} 
-                                            className={photos[index].rotation % 180 !== 0 ? 'rotated-print' : ''}
-                                            style={{ transform: `rotate(${photos[index].rotation}deg)` }} 
-                                        />
-                                        <p>{photos[index].caption}</p>
-                                    </div>
-                                    {photos[index + 1] && (
+                        {photosPerPage === 2 ? (
+                            photos.map((photo, index) => (
+                                (index % 2 === 0) && (
+                                    <div className="photo-report-page" key={`page-${index}`}>
                                         <div className="photo-report-item">
                                             <img 
-                                                src={photos[index + 1].src} 
-                                                className={photos[index + 1].rotation % 180 !== 0 ? 'rotated-print' : ''}
-                                                style={{ transform: `rotate(${photos[index + 1].rotation}deg)` }} 
+                                                src={photos[index].src} 
+                                                className={photos[index].rotation % 180 !== 0 ? 'rotated-print' : ''}
+                                                style={{ transform: `rotate(${photos[index].rotation}deg)` }} 
                                             />
-                                            <p>{photos[index + 1].caption}</p>
+                                            <p>{photos[index].caption}</p>
                                         </div>
-                                    )}
+                                        {photos[index + 1] && (
+                                            <div className="photo-report-item">
+                                                <img 
+                                                    src={photos[index + 1].src} 
+                                                    className={photos[index + 1].rotation % 180 !== 0 ? 'rotated-print' : ''}
+                                                    style={{ transform: `rotate(${photos[index + 1].rotation}deg)` }} 
+                                                />
+                                                <p>{photos[index + 1].caption}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            ))
+                        ) : (
+                            photos.map((p, i) => (
+                                <div className="photo-report-page single" key={`page-single-${i}`}>
+                                    <div className="photo-report-item">
+                                        <img 
+                                            src={p.src} 
+                                            className={p.rotation % 180 !== 0 ? 'rotated-print' : ''}
+                                            style={{ transform: `rotate(${p.rotation}deg)` }} 
+                                        />
+                                        <p>{p.caption}</p>
+                                    </div>
                                 </div>
-                            )
-                        ))}
+                            ))
+                        )}
                     </div>
                 </div>
             );
