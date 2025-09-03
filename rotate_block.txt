@@ -1,0 +1,5 @@
+<div className="rotate-buttons">
+                <button className="delete-btn" onClick={(e) => {e.stopPropagation(); removePhoto(photo.id);}}>✕</button>
+                <button onClick={(e) => {e.stopPropagation(); rotatePhoto(photo.id, 'left');}}>↺</button>
+                <button onClick={(e) => {e.stopPropagation(); rotatePhoto(photo.id, 'right');}}>↻</button>
+              </div>
