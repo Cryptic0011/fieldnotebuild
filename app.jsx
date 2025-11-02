@@ -48,6 +48,8 @@ const App = () => {
   );
 };
 
+const GEMINI_API_KEY = 'AIzaSyDDYvU9wZEb_CNWsvThU2ZvDhlsfVdEtbw';
+
 const InspectionBuilder = () => {
   const [participants, setParticipants] = useState([{ id: Date.now(), name: 'Insured' }]);
   const [customSections, setCustomSections] = useState([]);
@@ -66,6 +68,8 @@ const InspectionBuilder = () => {
 
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewriteError, setRewriteError] = useState('');
 
   const mainSectionOrder = ['general', 'col', 'perimeter', 'roof', 'otherStructures', 'interior', 'subro', 'salvage', 'underwriting', 'settlement', 'finalNote'];
 
@@ -169,6 +173,56 @@ const InspectionBuilder = () => {
 
   const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
 
+  const rewriteNoteWithAI = async () => {
+    if (!generatedNote.trim()) return;
+    setRewriteError('');
+    setIsRewriting(true);
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `Please rewrite the following text without editing the headers to read better without changing any acronyms.\n\n${generatedNote}`,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to rewrite note.');
+      }
+
+      const data = await response.json();
+      const aiText =
+        data?.candidates?.[0]?.content?.parts
+          ?.map(part => part.text)
+          .join('')
+          .trim() || '';
+
+      if (!aiText) {
+        throw new Error('No rewrite was returned.');
+      }
+
+      setGeneratedNote(aiText);
+    } catch (error) {
+      setRewriteError(error.message || 'Failed to rewrite note.');
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
   // Render
   const componentMap = {
     general: <Section title="General Inspection Details">
@@ -239,7 +293,13 @@ const InspectionBuilder = () => {
     </Section>,
     finalNote: <Section title="Generated Inspection Note">
       <pre>{generatedNote}</pre>
-      <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+      <div className="note-actions">
+        <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+        <button className="rewrite-btn" onClick={rewriteNoteWithAI} disabled={isRewriting}>
+          {isRewriting ? 'Rewriting…' : 'Rewrite with AI'}
+        </button>
+      </div>
+      {rewriteError && <div className="error-text">{rewriteError}</div>}
     </Section>,
   };
 
