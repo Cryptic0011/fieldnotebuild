@@ -25,7 +25,7 @@ const App = () => {
 
   return (
     <div>
-      <h1>Graysons Tools</h1>
+      <h1>Adjuster Tools</h1>
       <div className="tabs">
         {apps.map(app => (
           <button
