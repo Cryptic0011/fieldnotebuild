@@ -25,7 +25,7 @@ const App = () => {
 
   return (
     <div>
-      <h1>Graysons Tools</h1>
+      <h1>Adjuster Tools</h1>
       <div className="tabs">
         {apps.map(app => (
           <button
@@ -224,6 +224,56 @@ const InspectionBuilder = () => {
         throw new Error('No rewrite was returned.');
       }
       setAiRewrite(cleanedText);
+    } catch (error) {
+      setRewriteError(error.message || 'Failed to rewrite note.');
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
+  const rewriteNoteWithAI = async () => {
+    if (!generatedNote.trim()) return;
+    setRewriteError('');
+    setIsRewriting(true);
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `Please rewrite the following text without editing the headers to read better without changing any acronyms.\n\n${generatedNote}`,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to rewrite note.');
+      }
+
+      const data = await response.json();
+      const aiText =
+        data?.candidates?.[0]?.content?.parts
+          ?.map(part => part.text)
+          .join('')
+          .trim() || '';
+
+      if (!aiText) {
+        throw new Error('No rewrite was returned.');
+      }
+
+      setGeneratedNote(aiText);
     } catch (error) {
       setRewriteError(error.message || 'Failed to rewrite note.');
     } finally {

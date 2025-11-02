@@ -278,6 +278,34 @@ pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding:
   box-shadow: 0 20px 40px rgba(37, 99, 235, 0.25);
 }
 
+.photo-card.dragging {
+  opacity: 0.5;
+  transform: scale(0.97);
+  box-shadow: 0 20px 36px rgba(37, 99, 235, 0.28);
+}
+
+.photo-card.drop-indicator-before::before,
+.photo-card.drop-indicator-after::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.65), rgba(37, 99, 235, 0.1));
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.35);
+  pointer-events: none;
+}
+
+.photo-card.drop-indicator-before::before { top: 0; }
+.photo-card.drop-indicator-after::after { bottom: 0; }
+
+.photo-card.drop-indicator-before,
+.photo-card.drop-indicator-after {
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 20px 40px rgba(37, 99, 235, 0.25);
+}
+
 #print-content { position: absolute; left: -9999px; top: -9999px; }
 .photo-card img.rotated-grid { max-width: 100%; max-height: 100%; height: auto; transform-origin: center; }
 
