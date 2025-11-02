@@ -57,7 +57,7 @@ const InspectionBuilder = () => {
     perimeterGeneral: 'No such indicators were observed.', perimeterFront: 'No wind or hail damage observed.', perimeterLeft: 'No wind or hail damage observed.', perimeterRear: 'No wind or hail damage observed.', perimeterRight: 'No wind or hail damage observed.', perimeterEstimate: 'None prepared for no damage', showPerimeter: false,
     roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false,
     otherStructuresDetails: '', showOtherStructures: false,
-    rooms: [], interiorEstimate: 'No estimate prepared for interior damages.',
+    rooms: [],
     subroDetails: 'No subro potential', showSubro: true,
     salvageDetails: 'No salvage potential', showSalvage: true,
     underwritingConcernsDetails: 'No underwriting concerns were noted during my inspection', showUnderwriting: true,
@@ -146,7 +146,6 @@ const InspectionBuilder = () => {
           if (fields.rooms.length > 0) {
             note += `\n\nInterior damages:`;
             fields.rooms.forEach(room => { if (room.name && room.description) note += `\n\n${room.name}: ${room.description}`; });
-            note += `\nEstimate: ${fields.interiorEstimate}`;
           } else {
             note += `\n\nInterior:\nAn inspection of the interior was not performed.`;
           }
@@ -156,7 +155,10 @@ const InspectionBuilder = () => {
         case 'underwriting': if (fields.showUnderwriting) note += `\n\nUnderwriting concerns:\n${fields.underwritingConcernsDetails}`; break;
         case 'settlement':
           note += `\n\nSettlement: ${fields.settlementDetails}`;
-          if (fields.settledOnSite === 'Yes') note += `\nPayment type: ${fields.paymentType}\nSIP Included: ${fields.sipIncluded}`;
+          if (fields.settledOnSite === 'Yes') {
+            note += `\nPayment type: ${fields.paymentType}`;
+            if (fields.paymentType !== 'EFT') note += `\nSIP Included: ${fields.sipIncluded}`;
+          }
           break;
       }
       if (sectionId !== 'general') appendCustomSectionsFor(sectionId);
@@ -215,12 +217,6 @@ const InspectionBuilder = () => {
         </div>
       ))}
       <button onClick={addRoom}>+ Add Room</button>
-      {fields.rooms.length > 0 && (
-        <div style={{marginTop:'1.5rem'}}>
-          <label>Overall Estimate:</label>
-          <textarea value={fields.interiorEstimate} onChange={e => handleFieldChange('interiorEstimate', e.target.value)}></textarea>
-        </div>
-      )}
     </Section>,
     subro: <SectionToggle title="Subrogation" show={fields.showSubro} onToggle={() => handleFieldChange('showSubro', !fields.showSubro)}><textarea value={fields.subroDetails} onChange={e => handleFieldChange('subroDetails', e.target.value)}></textarea></SectionToggle>,
     salvage: <SectionToggle title="Salvage" show={fields.showSalvage} onToggle={() => handleFieldChange('showSalvage', !fields.showSalvage)}><textarea value={fields.salvageDetails} onChange={e => handleFieldChange('salvageDetails', e.target.value)}></textarea></SectionToggle>,
@@ -230,7 +226,15 @@ const InspectionBuilder = () => {
       <label>Settled on Site?</label><select value={fields.settledOnSite} onChange={e => handleFieldChange('settledOnSite', e.target.value)}><option value="No">No</option><option value="Yes">Yes</option></select>
       {fields.settledOnSite === 'Yes' && (<>
         <label>Payment type:</label><select value={fields.paymentType} onChange={e => handleFieldChange('paymentType', e.target.value)}><option value="Check">Check</option><option value="Manual Check">Manual Check</option><option value="EFT">EFT</option></select>
-        <label>SIP Included:</label><select value={fields.sipIncluded} onChange={e => handleFieldChange('sipIncluded', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+        {fields.paymentType !== 'EFT' && (
+          <>
+            <label>SIP Included:</label>
+            <select value={fields.sipIncluded} onChange={e => handleFieldChange('sipIncluded', e.target.value)}>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </>
+        )}
       </>)}
     </Section>,
     finalNote: <Section title="Generated Inspection Note">
@@ -283,7 +287,7 @@ const PhotoReportBuilder = () => {
   const [compression, setCompression] = useState('regular');
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -298,7 +302,20 @@ const PhotoReportBuilder = () => {
 
   const updateCaption = (id, caption) => setPhotos(prev => prev.map(p => (p.id === id ? { ...p, caption } : p)));
 
+  const applyCaptionToSelection = (caption) => {
+    if (selectedPhotos.size <= 1) return;
+    setPhotos(prev => prev.map(photo => (selectedPhotos.has(photo.id) ? { ...photo, caption } : photo)));
+  };
+
   const handleCaptionKeyDown = (e, id) => {
+    if (e.key === 'Enter' && !(e.shiftKey || e.altKey) && !(e.ctrlKey || e.metaKey)) {
+      if (selectedPhotos.has(id) && selectedPhotos.size > 1) {
+        e.preventDefault();
+        applyCaptionToSelection(e.currentTarget.value);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       const index = photos.findIndex(p => p.id === id);
       if (index !== -1) {
@@ -326,7 +343,7 @@ const PhotoReportBuilder = () => {
       const start = Math.min(lastIndex, currentIndex);
       const end = Math.max(lastIndex, currentIndex);
       for (let i = start; i <= end; i++) newSelection.add(photos[i].id);
-    } else if (e.ctrlKey) {
+    } else if (e.ctrlKey || e.metaKey) {
       if (newSelection.has(id)) newSelection.delete(id); else newSelection.add(id);
     } else {
       newSelection.clear(); newSelection.add(id);
@@ -457,23 +474,41 @@ const PhotoReportBuilder = () => {
         {photos.map((photo, index) => (
           <div
             key={photo.id}
-            className={`photo-card${selectedPhotos.has(photo.id) ? ' selected' : ''}${index === dragOverIndex ? ' drop-target' : ''}${index === dragFromIndex ? ' dragging' : ''}`}
+            className={`photo-card${selectedPhotos.has(photo.id) ? ' selected' : ''}${index === dragFromIndex ? ' dragging' : ''}${dragIndicator.index === index ? ` drop-indicator-${dragIndicator.position}` : ''}`}
             onClick={(e) => handlePhotoClick(e, photo.id)}
             draggable
-            onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(index)); e.dataTransfer.effectAllowed = 'move'; setDragFromIndex(index); }}
-            onDragEnter={() => setDragOverIndex(index)}
-            onDragOver={(e) => e.preventDefault()}
-            onDragEnd={() => { setDragFromIndex(null); setDragOverIndex(null); }}
+            onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(index)); e.dataTransfer.effectAllowed = 'move'; setDragFromIndex(index); setDragIndicator({ index, position: 'before' }); }}
+            onDragEnter={() => setDragIndicator(prev => (prev.index === index ? prev : { index, position: prev.position || 'before' }))}
+            onDragOver={(e) => {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const midpoint = rect.top + rect.height / 2;
+              const position = e.clientY < midpoint ? 'before' : 'after';
+              setDragIndicator(prev => (prev.index === index && prev.position === position ? prev : { index, position }));
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) {
+                setDragIndicator(prev => (prev.index === index ? { index: null, position: 'before' } : prev));
+              }
+            }}
+            onDragEnd={() => { setDragFromIndex(null); setDragIndicator({ index: null, position: 'before' }); }}
             onDrop={(e) => {
               e.preventDefault();
               const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
-              const to = index;
-              setDragFromIndex(null); setDragOverIndex(null);
-              if (Number.isNaN(from) || from === to) return;
+              const position = dragIndicator.index === index ? dragIndicator.position : 'before';
+              setDragFromIndex(null); setDragIndicator({ index: null, position: 'before' });
+              if (Number.isNaN(from)) return;
               setPhotos(prev => {
                 const arr = [...prev];
+                if (from < 0 || from >= arr.length) return prev;
                 const [m] = arr.splice(from, 1);
-                arr.splice(to, 0, m);
+                const totalLength = prev.length;
+                let targetIndex = position === 'after' ? index + 1 : index;
+                if (targetIndex > totalLength) targetIndex = totalLength;
+                if (from < targetIndex) targetIndex -= 1;
+                if (targetIndex > arr.length) targetIndex = arr.length;
+                if (targetIndex < 0) targetIndex = 0;
+                arr.splice(targetIndex, 0, m);
                 return arr;
               });
             }}
