@@ -48,6 +48,8 @@ const App = () => {
   );
 };
 
+const GEMINI_API_KEY = 'AIzaSyDDYvU9wZEb_CNWsvThU2ZvDhlsfVdEtbw';
+
 const InspectionBuilder = () => {
   const [participants, setParticipants] = useState([{ id: Date.now(), name: 'Insured' }]);
   const [customSections, setCustomSections] = useState([]);
@@ -57,7 +59,7 @@ const InspectionBuilder = () => {
     perimeterGeneral: 'No such indicators were observed.', perimeterFront: 'No wind or hail damage observed.', perimeterLeft: 'No wind or hail damage observed.', perimeterRear: 'No wind or hail damage observed.', perimeterRight: 'No wind or hail damage observed.', perimeterEstimate: 'None prepared for no damage', showPerimeter: false,
     roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false,
     otherStructuresDetails: '', showOtherStructures: false,
-    rooms: [], interiorEstimate: 'No estimate prepared for interior damages.',
+    rooms: [],
     subroDetails: 'No subro potential', showSubro: true,
     salvageDetails: 'No salvage potential', showSalvage: true,
     underwritingConcernsDetails: 'No underwriting concerns were noted during my inspection', showUnderwriting: true,
@@ -66,6 +68,9 @@ const InspectionBuilder = () => {
 
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
+  const [aiRewrite, setAiRewrite] = useState('');
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewriteError, setRewriteError] = useState('');
 
   const mainSectionOrder = ['general', 'col', 'perimeter', 'roof', 'otherStructures', 'interior', 'subro', 'salvage', 'underwriting', 'settlement', 'finalNote'];
 
@@ -146,7 +151,6 @@ const InspectionBuilder = () => {
           if (fields.rooms.length > 0) {
             note += `\n\nInterior damages:`;
             fields.rooms.forEach(room => { if (room.name && room.description) note += `\n\n${room.name}: ${room.description}`; });
-            note += `\nEstimate: ${fields.interiorEstimate}`;
           } else {
             note += `\n\nInterior:\nAn inspection of the interior was not performed.`;
           }
@@ -156,7 +160,10 @@ const InspectionBuilder = () => {
         case 'underwriting': if (fields.showUnderwriting) note += `\n\nUnderwriting concerns:\n${fields.underwritingConcernsDetails}`; break;
         case 'settlement':
           note += `\n\nSettlement: ${fields.settlementDetails}`;
-          if (fields.settledOnSite === 'Yes') note += `\nPayment type: ${fields.paymentType}\nSIP Included: ${fields.sipIncluded}`;
+          if (fields.settledOnSite === 'Yes') {
+            note += `\nPayment type: ${fields.paymentType}`;
+            if (fields.paymentType !== 'EFT') note += `\nSIP Included: ${fields.sipIncluded}`;
+          }
           break;
       }
       if (sectionId !== 'general') appendCustomSectionsFor(sectionId);
@@ -166,6 +173,63 @@ const InspectionBuilder = () => {
   }, [fields, participants, customSections]);
 
   const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
+  const copyRewriteToClipboard = () => {
+    if (aiRewrite) navigator.clipboard.writeText(aiRewrite);
+  };
+
+  const rewriteNoteWithAI = async () => {
+    if (!generatedNote.trim()) return;
+    setRewriteError('');
+    setIsRewriting(true);
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `Please rewrite the following text without editing the headers to read better without changing any acronyms. Keep the formatting plain text (no markdown or asterisks).\n\n${generatedNote}`,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to rewrite note.');
+      }
+
+      const data = await response.json();
+      const aiText =
+        data?.candidates?.[0]?.content?.parts
+          ?.map(part => part.text)
+          .join('')
+          .trim() || '';
+
+      if (!aiText) {
+        throw new Error('No rewrite was returned.');
+      }
+
+      const cleanedText = aiText.replace(/\*\*(.*?)\*\*/g, '$1').trim();
+      if (!cleanedText) {
+        throw new Error('No rewrite was returned.');
+      }
+      setAiRewrite(cleanedText);
+    } catch (error) {
+      setRewriteError(error.message || 'Failed to rewrite note.');
+    } finally {
+      setIsRewriting(false);
+    }
+  };
 
   // Render
   const componentMap = {
@@ -215,12 +279,6 @@ const InspectionBuilder = () => {
         </div>
       ))}
       <button onClick={addRoom}>+ Add Room</button>
-      {fields.rooms.length > 0 && (
-        <div style={{marginTop:'1.5rem'}}>
-          <label>Overall Estimate:</label>
-          <textarea value={fields.interiorEstimate} onChange={e => handleFieldChange('interiorEstimate', e.target.value)}></textarea>
-        </div>
-      )}
     </Section>,
     subro: <SectionToggle title="Subrogation" show={fields.showSubro} onToggle={() => handleFieldChange('showSubro', !fields.showSubro)}><textarea value={fields.subroDetails} onChange={e => handleFieldChange('subroDetails', e.target.value)}></textarea></SectionToggle>,
     salvage: <SectionToggle title="Salvage" show={fields.showSalvage} onToggle={() => handleFieldChange('showSalvage', !fields.showSalvage)}><textarea value={fields.salvageDetails} onChange={e => handleFieldChange('salvageDetails', e.target.value)}></textarea></SectionToggle>,
@@ -230,12 +288,35 @@ const InspectionBuilder = () => {
       <label>Settled on Site?</label><select value={fields.settledOnSite} onChange={e => handleFieldChange('settledOnSite', e.target.value)}><option value="No">No</option><option value="Yes">Yes</option></select>
       {fields.settledOnSite === 'Yes' && (<>
         <label>Payment type:</label><select value={fields.paymentType} onChange={e => handleFieldChange('paymentType', e.target.value)}><option value="Check">Check</option><option value="Manual Check">Manual Check</option><option value="EFT">EFT</option></select>
-        <label>SIP Included:</label><select value={fields.sipIncluded} onChange={e => handleFieldChange('sipIncluded', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+        {fields.paymentType !== 'EFT' && (
+          <>
+            <label>SIP Included:</label>
+            <select value={fields.sipIncluded} onChange={e => handleFieldChange('sipIncluded', e.target.value)}>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </>
+        )}
       </>)}
     </Section>,
     finalNote: <Section title="Generated Inspection Note">
       <pre>{generatedNote}</pre>
-      <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+      <div className="note-actions">
+        <button className="copy-btn" onClick={copyToClipboard}>Copy Original Note</button>
+        <button className="rewrite-btn" onClick={rewriteNoteWithAI} disabled={isRewriting}>
+          {isRewriting ? 'Rewriting…' : 'Rewrite with AI'}
+        </button>
+      </div>
+      {rewriteError && <div className="error-text">{rewriteError}</div>}
+      {aiRewrite && (
+        <div className="ai-rewrite-card">
+          <div className="ai-rewrite-header">
+            <h3>AI Rewrite</h3>
+            <button className="copy-btn" onClick={copyRewriteToClipboard}>Copy AI Note</button>
+          </div>
+          <pre>{aiRewrite}</pre>
+        </div>
+      )}
     </Section>,
   };
 
@@ -283,7 +364,7 @@ const PhotoReportBuilder = () => {
   const [compression, setCompression] = useState('regular');
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -298,7 +379,20 @@ const PhotoReportBuilder = () => {
 
   const updateCaption = (id, caption) => setPhotos(prev => prev.map(p => (p.id === id ? { ...p, caption } : p)));
 
+  const applyCaptionToSelection = (caption) => {
+    if (selectedPhotos.size <= 1) return;
+    setPhotos(prev => prev.map(photo => (selectedPhotos.has(photo.id) ? { ...photo, caption } : photo)));
+  };
+
   const handleCaptionKeyDown = (e, id) => {
+    if (e.key === 'Enter' && !(e.shiftKey || e.altKey) && !(e.ctrlKey || e.metaKey)) {
+      if (selectedPhotos.has(id) && selectedPhotos.size > 1) {
+        e.preventDefault();
+        applyCaptionToSelection(e.currentTarget.value);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       const index = photos.findIndex(p => p.id === id);
       if (index !== -1) {
@@ -326,7 +420,7 @@ const PhotoReportBuilder = () => {
       const start = Math.min(lastIndex, currentIndex);
       const end = Math.max(lastIndex, currentIndex);
       for (let i = start; i <= end; i++) newSelection.add(photos[i].id);
-    } else if (e.ctrlKey) {
+    } else if (e.ctrlKey || e.metaKey) {
       if (newSelection.has(id)) newSelection.delete(id); else newSelection.add(id);
     } else {
       newSelection.clear(); newSelection.add(id);
@@ -399,14 +493,14 @@ const PhotoReportBuilder = () => {
         const imageMaxHeightIn = slotHeightIn - 0.7;
         let yIn = margin;
         for (let slot = 0; slot < 2 && index < photos.length; slot++) {
-          const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
-          const caption = photos[index].caption || '';
-          const captionY = yIn + imageHeightIn + 0.2;
-          const lines = doc.splitTextToSize(caption, contentWidth);
-          doc.setFontSize(12);
-          doc.text(lines, margin, captionY, { maxWidth: contentWidth });
-          index++; yIn += slotHeightIn;
-        }
+            const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
+            const caption = photos[index].caption || '';
+            const captionY = yIn + imageHeightIn + 0.2;
+            const lines = doc.splitTextToSize(caption, contentWidth);
+            doc.setFontSize(12);
+            doc.text(lines, pageWidth / 2, captionY, { align: 'center', maxWidth: contentWidth });
+            index++; yIn += slotHeightIn;
+          }
       } else {
         const imageMaxHeightIn = contentHeight - 1.0;
         const { imageHeightIn } = await drawPhoto(photos[index], margin, margin, contentWidth, imageMaxHeightIn);
@@ -414,7 +508,7 @@ const PhotoReportBuilder = () => {
         const captionY = margin + imageHeightIn + 0.3;
         const lines = doc.splitTextToSize(caption, contentWidth);
         doc.setFontSize(12);
-        doc.text(lines, margin, captionY, { maxWidth: contentWidth });
+        doc.text(lines, pageWidth / 2, captionY, { align: 'center', maxWidth: contentWidth });
         index++;
       }
     }
@@ -457,23 +551,41 @@ const PhotoReportBuilder = () => {
         {photos.map((photo, index) => (
           <div
             key={photo.id}
-            className={`photo-card${selectedPhotos.has(photo.id) ? ' selected' : ''}${index === dragOverIndex ? ' drop-target' : ''}${index === dragFromIndex ? ' dragging' : ''}`}
+            className={`photo-card${selectedPhotos.has(photo.id) ? ' selected' : ''}${index === dragFromIndex ? ' dragging' : ''}${dragIndicator.index === index ? ` drop-indicator-${dragIndicator.position}` : ''}`}
             onClick={(e) => handlePhotoClick(e, photo.id)}
             draggable
-            onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(index)); e.dataTransfer.effectAllowed = 'move'; setDragFromIndex(index); }}
-            onDragEnter={() => setDragOverIndex(index)}
-            onDragOver={(e) => e.preventDefault()}
-            onDragEnd={() => { setDragFromIndex(null); setDragOverIndex(null); }}
+            onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(index)); e.dataTransfer.effectAllowed = 'move'; setDragFromIndex(index); setDragIndicator({ index, position: 'before' }); }}
+            onDragEnter={() => setDragIndicator(prev => (prev.index === index ? prev : { index, position: prev.position || 'before' }))}
+            onDragOver={(e) => {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const midpoint = rect.top + rect.height / 2;
+              const position = e.clientY < midpoint ? 'before' : 'after';
+              setDragIndicator(prev => (prev.index === index && prev.position === position ? prev : { index, position }));
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) {
+                setDragIndicator(prev => (prev.index === index ? { index: null, position: 'before' } : prev));
+              }
+            }}
+            onDragEnd={() => { setDragFromIndex(null); setDragIndicator({ index: null, position: 'before' }); }}
             onDrop={(e) => {
               e.preventDefault();
               const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
-              const to = index;
-              setDragFromIndex(null); setDragOverIndex(null);
-              if (Number.isNaN(from) || from === to) return;
+              const position = dragIndicator.index === index ? dragIndicator.position : 'before';
+              setDragFromIndex(null); setDragIndicator({ index: null, position: 'before' });
+              if (Number.isNaN(from)) return;
               setPhotos(prev => {
                 const arr = [...prev];
+                if (from < 0 || from >= arr.length) return prev;
                 const [m] = arr.splice(from, 1);
-                arr.splice(to, 0, m);
+                const totalLength = prev.length;
+                let targetIndex = position === 'after' ? index + 1 : index;
+                if (targetIndex > totalLength) targetIndex = totalLength;
+                if (from < targetIndex) targetIndex -= 1;
+                if (targetIndex > arr.length) targetIndex = arr.length;
+                if (targetIndex < 0) targetIndex = 0;
+                arr.splice(targetIndex, 0, m);
                 return arr;
               });
             }}
