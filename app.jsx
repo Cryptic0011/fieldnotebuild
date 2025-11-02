@@ -68,6 +68,7 @@ const InspectionBuilder = () => {
 
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
+  const [aiRewrite, setAiRewrite] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState('');
 
@@ -172,6 +173,63 @@ const InspectionBuilder = () => {
   }, [fields, participants, customSections]);
 
   const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
+  const copyRewriteToClipboard = () => {
+    if (aiRewrite) navigator.clipboard.writeText(aiRewrite);
+  };
+
+  const rewriteNoteWithAI = async () => {
+    if (!generatedNote.trim()) return;
+    setRewriteError('');
+    setIsRewriting(true);
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `Please rewrite the following text without editing the headers to read better without changing any acronyms. Keep the formatting plain text (no markdown or asterisks).\n\n${generatedNote}`,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to rewrite note.');
+      }
+
+      const data = await response.json();
+      const aiText =
+        data?.candidates?.[0]?.content?.parts
+          ?.map(part => part.text)
+          .join('')
+          .trim() || '';
+
+      if (!aiText) {
+        throw new Error('No rewrite was returned.');
+      }
+
+      const cleanedText = aiText.replace(/\*\*(.*?)\*\*/g, '$1').trim();
+      if (!cleanedText) {
+        throw new Error('No rewrite was returned.');
+      }
+      setAiRewrite(cleanedText);
+    } catch (error) {
+      setRewriteError(error.message || 'Failed to rewrite note.');
+    } finally {
+      setIsRewriting(false);
+    }
+  };
 
   const rewriteNoteWithAI = async () => {
     if (!generatedNote.trim()) return;
@@ -294,12 +352,21 @@ const InspectionBuilder = () => {
     finalNote: <Section title="Generated Inspection Note">
       <pre>{generatedNote}</pre>
       <div className="note-actions">
-        <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+        <button className="copy-btn" onClick={copyToClipboard}>Copy Original Note</button>
         <button className="rewrite-btn" onClick={rewriteNoteWithAI} disabled={isRewriting}>
           {isRewriting ? 'Rewriting…' : 'Rewrite with AI'}
         </button>
       </div>
       {rewriteError && <div className="error-text">{rewriteError}</div>}
+      {aiRewrite && (
+        <div className="ai-rewrite-card">
+          <div className="ai-rewrite-header">
+            <h3>AI Rewrite</h3>
+            <button className="copy-btn" onClick={copyRewriteToClipboard}>Copy AI Note</button>
+          </div>
+          <pre>{aiRewrite}</pre>
+        </div>
+      )}
     </Section>,
   };
 
@@ -476,14 +543,14 @@ const PhotoReportBuilder = () => {
         const imageMaxHeightIn = slotHeightIn - 0.7;
         let yIn = margin;
         for (let slot = 0; slot < 2 && index < photos.length; slot++) {
-          const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
-          const caption = photos[index].caption || '';
-          const captionY = yIn + imageHeightIn + 0.2;
-          const lines = doc.splitTextToSize(caption, contentWidth);
-          doc.setFontSize(12);
-          doc.text(lines, margin, captionY, { maxWidth: contentWidth });
-          index++; yIn += slotHeightIn;
-        }
+            const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
+            const caption = photos[index].caption || '';
+            const captionY = yIn + imageHeightIn + 0.2;
+            const lines = doc.splitTextToSize(caption, contentWidth);
+            doc.setFontSize(12);
+            doc.text(lines, pageWidth / 2, captionY, { align: 'center', maxWidth: contentWidth });
+            index++; yIn += slotHeightIn;
+          }
       } else {
         const imageMaxHeightIn = contentHeight - 1.0;
         const { imageHeightIn } = await drawPhoto(photos[index], margin, margin, contentWidth, imageMaxHeightIn);
@@ -491,7 +558,7 @@ const PhotoReportBuilder = () => {
         const captionY = margin + imageHeightIn + 0.3;
         const lines = doc.splitTextToSize(caption, contentWidth);
         doc.setFontSize(12);
-        doc.text(lines, margin, captionY, { maxWidth: contentWidth });
+        doc.text(lines, pageWidth / 2, captionY, { align: 'center', maxWidth: contentWidth });
         index++;
       }
     }
