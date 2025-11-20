@@ -228,11 +228,14 @@ pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding:
 
 /* On-screen page preview */
 .preview-pages { margin-top: 2rem; }
-.photo-report-page { width: 816px; height: 1056px; display: flex; flex-direction: column; justify-content: space-around; align-items: center; background: #ffffff; padding: 48px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 16px; margin: 1rem auto; box-shadow: 0 18px 40px var(--surface-shadow); }
-.photo-report-page.single { justify-content: center; }
+/* Landscape mode for 2 per page, portrait for single */
+.photo-report-page { width: 1056px; height: 816px; display: flex; flex-direction: row; justify-content: space-around; align-items: center; gap: 24px; background: #ffffff; padding: 48px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 16px; margin: 1rem auto; box-shadow: 0 18px 40px var(--surface-shadow); }
+.photo-report-page.single { width: 816px; height: 1056px; flex-direction: column; justify-content: center; gap: 0; }
 .photo-report-item { width: 100%; text-align: center; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; }
-.photo-report-item img { max-width: 100%; max-height: 384px; object-fit: contain; border: 1px dashed var(--border-color); background: #f8fafc; }
-.photo-report-item img.rotated-print { max-height: 384px; max-width: 432px; }
+/* 2 per page - side by side in landscape */
+.photo-report-item img { max-width: 100%; max-height: 648px; object-fit: contain; border: 1px dashed var(--border-color); background: #f8fafc; }
+.photo-report-item img.rotated-print { max-height: 648px; max-width: 100%; }
+/* 1 per page - portrait */
 .photo-report-page.single .photo-report-item img { max-height: 864px; max-width: 100%; }
 .photo-report-page.single .photo-report-item img.rotated-print { max-height: 864px; max-width: 720px; }
 .photo-report-item p { margin-top: 12px; font-size: 14px; }
@@ -244,23 +247,26 @@ pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding:
 .draggable:active { cursor: grabbing; }
 
 @media print {
-  @page { size: letter portrait; margin: 0 !important; }
+  @page { size: letter landscape; margin: 0 !important; }
   body * { visibility: hidden; }
   #print-content, #print-content * { visibility: visible; }
   #print-content { position: absolute; left: 0; top: 0; width: 100%; }
-  .photo-report-page { page-break-after: always; width: 100%; height: 10in; display: flex; flex-direction: column; justify-content: space-around; align-items: center; background: white; padding: 0.5in; box-sizing: border-box; }
-  .photo-report-page.single { justify-content: center; }
+  /* 2 per page - landscape, side by side */
+  .photo-report-page { page-break-after: always; width: 100%; height: 8.5in; display: flex; flex-direction: row; justify-content: space-around; align-items: center; gap: 0.5in; background: white; padding: 0.5in; box-sizing: border-box; }
+  /* 1 per page - portrait */
+  .photo-report-page.single { width: 100%; height: 10in; flex-direction: column; justify-content: center; gap: 0; }
+  @page :first { size: letter portrait; }
+  .photo-report-page:first-of-type.single { size: letter portrait; }
+  
   .photo-report-item { width: 100%; text-align: center; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; }
-  .photo-report-item img { max-width: 100%; max-height: 4in; object-fit: contain; border: 1px solid #ccc; }
-  .photo-report-item img.rotated-print { max-height: 4in; max-width: 4.5in; }
-  .photo-report-page.single .photo-report-item img { max-height: 8in; max-width: 100%; }
-  .photo-report-page.single .photo-report-item img.rotated-print { max-height: 8in; max-width: 7.5in; }
-/* moved to the main body rule above; remove duplicate */
-#photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
-.photo-card.dragging { opacity: 0.5; }
-.photo-card.drop-target { outline: 2px dashed var(--primary-color); outline-offset: -6px; box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.15) inset; }
-.photo-card.drop-target .photo-container { background: rgba(37, 99, 235, 0.08); }
-  .photo-report-item p { margin-top: 0.25in; font-size: 12pt; }
+  /* 2 per page - side by side images */
+  .photo-report-item img { max-width: 100%; max-height: 7in; object-fit: contain; border: 1px solid #ccc; }
+  .photo-report-item img.rotated-print { max-height: 7in; max-width: 100%; }
+  /* 1 per page - portrait images */
+  .photo-report-page.single .photo-report-item img { max-height: 8.5in; max-width: 100%; }
+  .photo-report-page.single .photo-report-item img.rotated-print { max-height: 8.5in; max-width: 7.5in; }
+  
+  .photo-report-item p { margin-top: 0.25in; font-size: 10pt; }
 }
 
 /* iOS Add to Home Screen Prompt */
