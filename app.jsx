@@ -56,7 +56,7 @@ const App = () => {
     },
     {
       id: 'photo',
-      name: 'Photo Report',
+      name: 'Photos',
       description:
         'Upload multiple photos and print them into one document for your file.',
       component: PhotoReportBuilder,
@@ -71,7 +71,6 @@ const App = () => {
     <>
       <IOSInstallPrompt />
       <div>
-        <h1>Adjuster Tools</h1>
         <div className="tabs">
         {apps.map(app => (
           <button
@@ -648,7 +647,6 @@ const PhotoReportBuilder = () => {
       // Simple approach: look for embedded image signatures
       // JPG signature: FF D8 FF
       // PNG signature: 89 50 4E 47
-      // HEIC signature: various, but often contains "ftyp" and "heic"
       
       const images = [];
       
@@ -668,7 +666,7 @@ const PhotoReportBuilder = () => {
           if (end < uint8Array.length) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/jpeg' });
-            images.push({ blob, type: 'jpeg' });
+            images.push({ blob, type: 'jpeg', size: blob.size, start: i });
           }
         }
       }
@@ -691,7 +689,7 @@ const PhotoReportBuilder = () => {
           if (end < uint8Array.length) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/png' });
-            images.push({ blob, type: 'png' });
+            images.push({ blob, type: 'png', size: blob.size, start: i });
           }
         }
       }
@@ -701,14 +699,79 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // Add extracted images to photos - convert to data URLs for persistence
-      for (let index = 0; index < images.length; index++) {
-        const img = images[index];
+      // Filter and deduplicate images
+      // 1. Filter out very small images (likely thumbnails or icons) - keep only images > 10KB
+      const filteredImages = images.filter(img => img.size > 10000);
+      
+      if (filteredImages.length === 0) {
+        alert('No valid images found in the .msg file (all images were too small)');
+        return;
+      }
+      
+      // 2. Remove duplicates - if multiple images of the same type exist, keep only the largest
+      const uniqueImages = [];
+      const seenTypes = new Map();
+      
+      // Sort by size (largest first) to prioritize higher quality images
+      filteredImages.sort((a, b) => b.size - a.size);
+      
+      for (const img of filteredImages) {
+        // Create a simple hash based on size to detect near-duplicates
+        const sizeKey = Math.floor(img.size / 1000); // Group by KB
+        const typeKey = `${img.type}-${sizeKey}`;
+        
+        if (!seenTypes.has(typeKey)) {
+          seenTypes.set(typeKey, true);
+          uniqueImages.push(img);
+        }
+      }
+      
+      // 3. Validate images by attempting to load them
+      const validatedImages = [];
+      for (const img of uniqueImages) {
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(img.blob);
+          });
+          
+          // Try to load the image to ensure it's valid
+          const isValid = await new Promise((resolve) => {
+            const testImg = new Image();
+            testImg.onload = () => {
+              // Check if image has valid dimensions (not 0x0)
+              if (testImg.width > 0 && testImg.height > 0) {
+                resolve(true);
+              } else {
+                resolve(false);
+              }
+            };
+            testImg.onerror = () => resolve(false);
+            testImg.src = dataUrl;
+          });
+          
+          if (isValid) {
+            validatedImages.push({ ...img, dataUrl });
+          }
+        } catch (error) {
+          console.log('Skipping invalid image:', error);
+        }
+      }
+      
+      if (validatedImages.length === 0) {
+        alert('No valid images could be extracted from the .msg file');
+        return;
+      }
+      
+      // Add validated images to photos
+      for (let index = 0; index < validatedImages.length; index++) {
+        const img = validatedImages[index];
         const file = new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` });
-        const dataUrl = await fileToDataUrl(file);
         const newPhoto = {
           id: Date.now() + Math.random() + index,
-          src: dataUrl,
+          src: img.dataUrl,
           caption: '',
           rotation: 0,
           file
@@ -892,34 +955,56 @@ const PhotoReportBuilder = () => {
           const captionY = margin + imageHeightIn + 0.2;
           const lines = doc.splitTextToSize(caption, slotWidthIn);
           doc.setFontSize(10);
-          doc.text(lines, xIn, captionY, { maxWidth: slotWidthIn });
+          // Center captions horizontally
+          const captionX = xIn + slotWidthIn / 2;
+          doc.text(lines, captionX, captionY, { maxWidth: slotWidthIn, align: 'center' });
           index++;
         }
       } else {
+        // Single photo per page - center it vertically on the page
         const imageMaxHeightIn = contentHeight - 1.0;
-        const { imageHeightIn } = await drawPhoto(photos[index], margin, margin, contentWidth, imageMaxHeightIn);
+        
+        // First, calculate the image height to determine vertical centering
+        const img = await loadImage(photos[index].src);
+        const rotation = ((photos[index].rotation || 0) % 360 + 360) % 360;
+        const rotated = rotation % 180 !== 0;
+        const originalWidth = img.naturalWidth || img.width;
+        const originalHeight = img.naturalHeight || img.height;
+        const orientedWidth = rotated ? originalHeight : originalWidth;
+        const orientedHeight = rotated ? originalWidth : originalHeight;
+        const aspect = orientedWidth / orientedHeight;
+        
+        let targetWidthIn = Math.min(contentWidth, imageMaxHeightIn * aspect);
+        let targetHeightIn = targetWidthIn / aspect;
+        if (targetHeightIn > imageMaxHeightIn) { 
+          targetHeightIn = imageMaxHeightIn; 
+          targetWidthIn = targetHeightIn * aspect; 
+        }
+        
+        // Center the photo vertically
+        const verticalSpace = contentHeight - targetHeightIn - 1.0; // Space minus image and caption area
+        const topMargin = margin + (verticalSpace > 0 ? verticalSpace / 2 : 0);
+        
+        // Draw photo with centered vertical position
+        const { imageHeightIn } = await drawPhoto(photos[index], margin, topMargin, contentWidth, imageMaxHeightIn);
+        
         const caption = photos[index].caption || '';
-        const captionY = margin + imageHeightIn + 0.3;
+        const captionY = topMargin + imageHeightIn + 0.3;
         const lines = doc.splitTextToSize(caption, contentWidth);
         doc.setFontSize(12);
-        doc.text(lines, margin, captionY, { maxWidth: contentWidth });
+        // Center captions horizontally
+        const captionX = margin + contentWidth / 2;
+        doc.text(lines, captionX, captionY, { maxWidth: contentWidth, align: 'center' });
         index++;
       }
     }
     
-      // iOS-specific handling: use download instead of opening in new tab
-      if (isIOS) {
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().slice(0, 10);
-        const filename = `photo-report-${timestamp}.pdf`;
-        
-        // Save the PDF directly
-        doc.save(filename);
-      } else {
-        // For other browsers, open in new tab for preview
-        const blobUrl = doc.output('bloburl');
-        window.open(blobUrl, '_blank');
-      }
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const filename = `photo-report-${timestamp}.pdf`;
+      
+      // Save the PDF directly to ensure all photos are saved locally
+      doc.save(filename);
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Failed to generate PDF. Please try again.');
