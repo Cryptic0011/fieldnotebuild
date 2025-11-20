@@ -675,7 +675,7 @@ const PhotoReportBuilder = () => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
         
         // Set canvas size based on orientation
         if (orientation > 4 && orientation < 9) {
@@ -833,7 +833,7 @@ const PhotoReportBuilder = () => {
                 const canvas = document.createElement('canvas');
                 canvas.width = Math.min(testImg.width, 100);
                 canvas.height = Math.min(testImg.height, 100);
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
                 ctx.drawImage(testImg, 0, 0, canvas.width, canvas.height);
                 
                 try {
@@ -851,7 +851,7 @@ const PhotoReportBuilder = () => {
                   }
                   
                   const avgColorDiff = colorDiff / sampleSize;
-                  const isGrayscale = avgColorDiff < 10; // Threshold for grayscale detection
+                  const isGrayscale = avgColorDiff < 5; // Threshold for grayscale detection - lower value means stricter
                   
                   resolve({
                     valid: true,
@@ -1110,7 +1110,7 @@ const PhotoReportBuilder = () => {
       const canvas = document.createElement('canvas');
       canvas.width = rotated ? targetHeightPx : targetWidthPx;
       canvas.height = rotated ? targetWidthPx : targetHeightPx;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.fillStyle = '#ffffff';
