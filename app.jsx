@@ -58,7 +58,7 @@ const App = () => {
       id: 'photo',
       name: 'Photo Report',
       description:
-        'Create a photo report and export as PDF. Upload, caption, rotate; drag to reorder photos in the grid.',
+        'Upload multiple photos and print them into one document for your file.',
       component: PhotoReportBuilder,
     },
   ];
@@ -547,15 +547,126 @@ const PhotoReportBuilder = () => {
     };
   }, [photos]);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const files = Array.from(e.target.files);
-    processFiles(files);
+    await processFiles(files);
   };
 
-  const processFiles = (files) => {
-    const imageFiles = files.filter(file => file.type.startsWith('image/'));
-    const newPhotos = imageFiles.map(file => ({ id: Date.now() + Math.random(), src: URL.createObjectURL(file), caption: '', rotation: 0, file }));
-    setPhotos(prev => [...prev, ...newPhotos]);
+  const processFiles = async (files) => {
+    for (const file of files) {
+      // Handle .msg files
+      if (file.name.toLowerCase().endsWith('.msg')) {
+        await processMsgFile(file);
+      }
+      // Handle HEIC files
+      else if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+        await processHeicFile(file);
+      }
+      // Handle regular images
+      else if (file.type.startsWith('image/')) {
+        const newPhoto = { id: Date.now() + Math.random(), src: URL.createObjectURL(file), caption: '', rotation: 0, file };
+        setPhotos(prev => [...prev, newPhoto]);
+      }
+    }
+  };
+
+  const processHeicFile = async (file) => {
+    try {
+      // For HEIC files, we'll create a blob URL directly
+      // Modern browsers and iOS handle HEIC natively
+      const newPhoto = { 
+        id: Date.now() + Math.random(), 
+        src: URL.createObjectURL(file), 
+        caption: '', 
+        rotation: 0, 
+        file,
+        isHeic: true
+      };
+      setPhotos(prev => [...prev, newPhoto]);
+    } catch (error) {
+      console.error('Error processing HEIC file:', error);
+      alert('Failed to load HEIC image. Please try converting it to JPG first.');
+    }
+  };
+
+  const processMsgFile = async (file) => {
+    try {
+      // Read the .msg file as array buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Simple approach: look for embedded image signatures
+      // JPG signature: FF D8 FF
+      // PNG signature: 89 50 4E 47
+      // HEIC signature: various, but often contains "ftyp" and "heic"
+      
+      const images = [];
+      
+      // Search for JPG images
+      for (let i = 0; i < uint8Array.length - 3; i++) {
+        if (uint8Array[i] === 0xFF && uint8Array[i + 1] === 0xD8 && uint8Array[i + 2] === 0xFF) {
+          // Found JPG start
+          let end = i + 3;
+          // Look for JPG end marker (FF D9)
+          while (end < uint8Array.length - 1) {
+            if (uint8Array[end] === 0xFF && uint8Array[end + 1] === 0xD9) {
+              end += 2;
+              break;
+            }
+            end++;
+          }
+          if (end < uint8Array.length) {
+            const imageData = uint8Array.slice(i, end);
+            const blob = new Blob([imageData], { type: 'image/jpeg' });
+            images.push({ blob, type: 'jpeg' });
+          }
+        }
+      }
+      
+      // Search for PNG images
+      for (let i = 0; i < uint8Array.length - 8; i++) {
+        if (uint8Array[i] === 0x89 && uint8Array[i + 1] === 0x50 && 
+            uint8Array[i + 2] === 0x4E && uint8Array[i + 3] === 0x47) {
+          // Found PNG start
+          let end = i + 8;
+          // Look for PNG end marker (IEND chunk)
+          while (end < uint8Array.length - 12) {
+            if (uint8Array[end] === 0x49 && uint8Array[end + 1] === 0x45 && 
+                uint8Array[end + 2] === 0x4E && uint8Array[end + 3] === 0x44) {
+              end += 12; // Include IEND chunk and CRC
+              break;
+            }
+            end++;
+          }
+          if (end < uint8Array.length) {
+            const imageData = uint8Array.slice(i, end);
+            const blob = new Blob([imageData], { type: 'image/png' });
+            images.push({ blob, type: 'png' });
+          }
+        }
+      }
+      
+      if (images.length === 0) {
+        alert('No images found in the .msg file');
+        return;
+      }
+      
+      // Add extracted images to photos
+      images.forEach((img, index) => {
+        const newPhoto = {
+          id: Date.now() + Math.random() + index,
+          src: URL.createObjectURL(img.blob),
+          caption: '',
+          rotation: 0,
+          file: new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` })
+        };
+        setPhotos(prev => [...prev, newPhoto]);
+      });
+      
+    } catch (error) {
+      console.error('Error processing .msg file:', error);
+      alert('Failed to extract images from .msg file. The file may be corrupted or in an unsupported format.');
+    }
   };
 
   const updateCaption = (id, caption) => setPhotos(prev => prev.map(p => (p.id === id ? { ...p, caption } : p)));
@@ -610,12 +721,12 @@ const PhotoReportBuilder = () => {
     lastSelectedId.current = id;
   };
 
-  const handleDrop = (e) => { 
+  const handleDrop = async (e) => { 
     if (isIOS) return; // Disable drag/drop on iOS
     e.preventDefault(); 
     e.stopPropagation(); 
     if (dropZoneRef.current) dropZoneRef.current.classList.remove('dragover'); 
-    processFiles(Array.from(e.dataTransfer.files)); 
+    await processFiles(Array.from(e.dataTransfer.files)); 
   };
   
   const handleDragOver = (e) => { 
@@ -634,7 +745,9 @@ const PhotoReportBuilder = () => {
 
   const generatePdf = async () => {
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+    // Use landscape orientation when 2 images per page is selected
+    const orientation = photosPerPage === 2 ? 'landscape' : 'portrait';
+    const doc = new jsPDF({ unit: 'in', format: 'letter', orientation });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 0.5;
@@ -644,7 +757,13 @@ const PhotoReportBuilder = () => {
     const settingsMap = { regular: { dpi: 144, quality: 0.92 }, smaller: { dpi: 120, quality: 0.82 }, smallest: { dpi: 96, quality: 0.72 } };
     const { dpi, quality } = settingsMap[compression] || settingsMap.regular;
 
-    const loadImage = (src) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
+    const loadImage = (src) => new Promise((resolve, reject) => { 
+      const img = new Image(); 
+      img.crossOrigin = 'anonymous'; // For CORS
+      img.onload = () => resolve(img); 
+      img.onerror = reject; 
+      img.src = src; 
+    });
 
     const drawPhoto = async (photo, xIn, yIn, maxWidthIn, maxImageHeightIn) => {
       const img = await loadImage(photo.src);
@@ -660,6 +779,7 @@ const PhotoReportBuilder = () => {
       let targetHeightIn = targetWidthIn / aspect;
       if (targetHeightIn > maxImageHeightIn) { targetHeightIn = maxImageHeightIn; targetWidthIn = targetHeightIn * aspect; }
 
+      // Apply compression settings properly
       const targetWidthPx = Math.max(1, Math.round(targetWidthIn * dpi));
       const targetHeightPx = Math.max(1, Math.round(targetHeightIn * dpi));
 
@@ -677,6 +797,7 @@ const PhotoReportBuilder = () => {
       ctx.drawImage(img, -targetWidthPx / 2, -targetHeightPx / 2, targetWidthPx, targetHeightPx);
       ctx.restore();
 
+      // Apply quality compression
       const dataUrl = canvas.toDataURL('image/jpeg', quality);
       const offsetXIn = xIn + (maxWidthIn - targetWidthIn) / 2;
       doc.addImage(dataUrl, 'JPEG', offsetXIn, yIn, targetWidthIn, targetHeightIn, undefined, 'FAST');
@@ -711,9 +832,20 @@ const PhotoReportBuilder = () => {
         index++;
       }
     }
-    // Open PDF in a new tab for print/save preview instead of auto-saving
-    const blobUrl = doc.output('bloburl');
-    window.open(blobUrl, '_blank');
+    
+    // iOS-specific handling: use download instead of opening in new tab
+    if (isIOS) {
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const filename = `photo-report-${timestamp}.pdf`;
+      
+      // Save the PDF directly
+      doc.save(filename);
+    } else {
+      // For other browsers, open in new tab for preview
+      const blobUrl = doc.output('bloburl');
+      window.open(blobUrl, '_blank');
+    }
   };
 
   // preview removed
@@ -722,7 +854,7 @@ const PhotoReportBuilder = () => {
     <div>
       <div id="photo-controls" className="section-card no-print">
         <h2>Photo Report Builder</h2>
-        <input type="file" multiple accept="image/*" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
+        <input type="file" multiple accept="image/*,.heic,.heif,.msg" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
         <div id="photo-drop-zone" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onClick={openFilePicker}>
           {isIOS ? 'Tap to Upload Photos' : 'Drag & drop photos here or click to upload'}
         </div>
