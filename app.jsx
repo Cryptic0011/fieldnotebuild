@@ -403,6 +403,17 @@ const InspectionBuilder = () => {
 
   return (
     <div>
+      {/* Clear Inspection Button at Top */}
+      <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <button 
+          className="clear-inspection-btn" 
+          onClick={clearInspection}
+          style={{ background: 'var(--danger-color)' }}
+        >
+          Clear Inspection
+        </button>
+      </div>
+
       {mainSectionOrder.map(sectionId => {
         const customSection = customSections.find(s => s.insertAfterId === sectionId);
         const hasCustomSection = !!customSection;
