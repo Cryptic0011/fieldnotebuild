@@ -262,3 +262,59 @@ pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding:
 .photo-card.drop-target .photo-container { background: rgba(37, 99, 235, 0.08); }
   .photo-report-item p { margin-top: 0.25in; font-size: 12pt; }
 }
+
+/* iOS Add to Home Screen Prompt */
+.a2hs-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(14px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999999;
+}
+
+.a2hs-card {
+  background: rgba(28, 28, 28, 0.92);
+  padding: 32px;
+  border-radius: 24px;
+  width: 88%;
+  max-width: 430px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  animation: fadeIn 0.3s ease;
+}
+
+.a2hs-app-icon {
+  width: 82px;
+  height: 82px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+}
+
+.a2hs-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.a2hs-subtitle {
+  font-size: 15px;
+  color: #d1d5db;
+  margin-bottom: 22px;
+}
+
+.a2hs-instructions {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.share-icon {
+  width: 22px;
+  height: 22px;
+  fill: white;
+  vertical-align: -4px;
+  margin: 0 6px;
+}

@@ -9,6 +9,39 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// iOS Add to Home Screen Prompt Component
+const IOSInstallPrompt = () => {
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isPWA =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+
+  if (!isIOS || isPWA) return null;
+
+  return (
+    <div className="a2hs-backdrop">
+      <div className="a2hs-card">
+        <img src="/public/icons/icon-192.png" className="a2hs-app-icon" alt="FieldNote App Icon" />
+
+        <h2 className="a2hs-title">
+          Add to Home Screen to use FieldNote
+        </h2>
+
+        <p className="a2hs-subtitle">
+          Install FieldNote from Safari's share menu for offline support,
+          full-screen mode, and automatic saving.
+        </p>
+
+        <p className="a2hs-instructions">
+          Tap <svg className="share-icon" viewBox="0 0 24 24">
+            <path d="M12 2l4 4h-3v7h-2V6H8l4-4zm-7 9v9h14v-9h2v11H3V11h2z"/>
+          </svg> then "Add to Home Screen"
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   // App registry for easier scaling as more tools are added
   const apps = [
@@ -33,9 +66,11 @@ const App = () => {
   const activeDescription = apps.find(a => a.id === activeTab)?.description || '';
 
   return (
-    <div>
-      <h1>Adjuster Tools</h1>
-      <div className="tabs">
+    <>
+      <IOSInstallPrompt />
+      <div>
+        <h1>Adjuster Tools</h1>
+        <div className="tabs">
         {apps.map(app => (
           <button
             key={app.id}
@@ -53,7 +88,8 @@ const App = () => {
           {activeTab === app.id && React.createElement(app.component)}
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 };
 
