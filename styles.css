@@ -46,7 +46,7 @@ html, body { min-height: 100%; }
 .tabs {
   display: inline-flex;
   justify-content: center;
-  margin-bottom: 0.75rem;
+  margin: 0 auto 0.75rem auto;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 9999px;
   padding: 0.35rem;

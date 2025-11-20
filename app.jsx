@@ -71,24 +71,26 @@ const App = () => {
     <>
       <IOSInstallPrompt />
       <div>
-        <div className="tabs">
-        {apps.map(app => (
-          <button
-            key={app.id}
-            className={`tab-button ${activeTab === app.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(app.id)}
-          >
-            {app.name}
-          </button>
-        ))}
-      </div>
-      <div className="tab-help">{activeDescription}</div>
-
-      {apps.map(app => (
-        <div key={app.id} id={app.id} className={`tab-content ${activeTab === app.id ? 'active' : ''}`}>
-          {activeTab === app.id && React.createElement(app.component)}
+        <div style={{ textAlign: 'center' }}>
+          <div className="tabs">
+            {apps.map(app => (
+              <button
+                key={app.id}
+                className={`tab-button ${activeTab === app.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(app.id)}
+              >
+                {app.name}
+              </button>
+            ))}
+          </div>
         </div>
-      ))}
+        <div className="tab-help">{activeDescription}</div>
+
+        {apps.map(app => (
+          <div key={app.id} id={app.id} className={`tab-content ${activeTab === app.id ? 'active' : ''}`}>
+            {activeTab === app.id && React.createElement(app.component)}
+          </div>
+        ))}
       </div>
     </>
   );
@@ -603,7 +605,19 @@ const PhotoReportBuilder = () => {
       // Handle regular images
       else if (file.type.startsWith('image/')) {
         // Convert to data URL for persistence
-        const dataUrl = await fileToDataUrl(file);
+        let dataUrl = await fileToDataUrl(file);
+        
+        // Check for EXIF orientation and correct if needed
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const orientation = getOrientationFromExif(arrayBuffer);
+          if (orientation !== 1) {
+            dataUrl = await correctImageOrientation(dataUrl, orientation);
+          }
+        } catch (error) {
+          console.log('Could not read EXIF orientation, using image as-is:', error);
+        }
+        
         const newPhoto = { id: Date.now() + Math.random(), src: dataUrl, caption: '', rotation: 0, file };
         setPhotos(prev => [...prev, newPhoto]);
       }
@@ -616,6 +630,91 @@ const PhotoReportBuilder = () => {
       reader.onload = (e) => resolve(e.target.result);
       reader.onerror = reject;
       reader.readAsDataURL(file);
+    });
+  };
+
+  // Extract EXIF orientation and auto-correct image
+  const getOrientationFromExif = (arrayBuffer) => {
+    const view = new DataView(arrayBuffer);
+    if (view.getUint16(0, false) !== 0xFFD8) return 1; // Not a JPEG
+    
+    const length = view.byteLength;
+    let offset = 2;
+    
+    while (offset < length) {
+      if (view.getUint16(offset + 2, false) <= 8) return 1;
+      const marker = view.getUint16(offset, false);
+      offset += 2;
+      
+      if (marker === 0xFFE1) { // APP1 marker (EXIF)
+        const littleEndian = view.getUint16(offset + 10, false) === 0x4949;
+        offset += 4;
+        
+        const tags = view.getUint16(offset + 8, littleEndian);
+        offset += 10;
+        
+        for (let i = 0; i < tags; i++) {
+          const tag = view.getUint16(offset + (i * 12), littleEndian);
+          if (tag === 0x0112) { // Orientation tag
+            return view.getUint16(offset + (i * 12) + 8, littleEndian);
+          }
+        }
+      } else if ((marker & 0xFF00) !== 0xFF00) {
+        break;
+      } else {
+        offset += view.getUint16(offset, false);
+      }
+    }
+    return 1;
+  };
+
+  const correctImageOrientation = async (dataUrl, orientation) => {
+    if (orientation === 1) return dataUrl; // No correction needed
+    
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size based on orientation
+        if (orientation > 4 && orientation < 9) {
+          canvas.width = img.height;
+          canvas.height = img.width;
+        } else {
+          canvas.width = img.width;
+          canvas.height = img.height;
+        }
+        
+        // Transform based on orientation
+        switch (orientation) {
+          case 2:
+            ctx.transform(-1, 0, 0, 1, img.width, 0);
+            break;
+          case 3:
+            ctx.transform(-1, 0, 0, -1, img.width, img.height);
+            break;
+          case 4:
+            ctx.transform(1, 0, 0, -1, 0, img.height);
+            break;
+          case 5:
+            ctx.transform(0, 1, 1, 0, 0, 0);
+            break;
+          case 6:
+            ctx.transform(0, 1, -1, 0, img.height, 0);
+            break;
+          case 7:
+            ctx.transform(0, -1, -1, 0, img.height, img.width);
+            break;
+          case 8:
+            ctx.transform(0, -1, 1, 0, 0, img.width);
+            break;
+        }
+        
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+      img.src = dataUrl;
     });
   };
 
@@ -700,35 +799,22 @@ const PhotoReportBuilder = () => {
       }
       
       // Filter and deduplicate images
-      // 1. Filter out very small images (likely thumbnails or icons) - keep only images > 10KB
-      const filteredImages = images.filter(img => img.size > 10000);
+      // 1. Filter out very small images (likely thumbnails or icons) - keep only images > 50KB
+      // Increased threshold to better filter out low-quality embedded images
+      const filteredImages = images.filter(img => img.size > 50000);
       
       if (filteredImages.length === 0) {
         alert('No valid images found in the .msg file (all images were too small)');
         return;
       }
       
-      // 2. Remove duplicates - if multiple images of the same type exist, keep only the largest
-      const uniqueImages = [];
-      const seenTypes = new Map();
-      
+      // 2. Advanced deduplication - group similar images and keep only the highest quality
       // Sort by size (largest first) to prioritize higher quality images
       filteredImages.sort((a, b) => b.size - a.size);
       
-      for (const img of filteredImages) {
-        // Create a simple hash based on size to detect near-duplicates
-        const sizeKey = Math.floor(img.size / 1000); // Group by KB
-        const typeKey = `${img.type}-${sizeKey}`;
-        
-        if (!seenTypes.has(typeKey)) {
-          seenTypes.set(typeKey, true);
-          uniqueImages.push(img);
-        }
-      }
-      
-      // 3. Validate images by attempting to load them
+      // 3. Validate images and extract dimensions for better deduplication
       const validatedImages = [];
-      for (const img of uniqueImages) {
+      for (const img of filteredImages) {
         try {
           const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -737,23 +823,63 @@ const PhotoReportBuilder = () => {
             reader.readAsDataURL(img.blob);
           });
           
-          // Try to load the image to ensure it's valid
-          const isValid = await new Promise((resolve) => {
+          // Try to load the image to ensure it's valid and get dimensions
+          const imageInfo = await new Promise((resolve) => {
             const testImg = new Image();
             testImg.onload = () => {
-              // Check if image has valid dimensions (not 0x0)
+              // Check if image has valid dimensions (not 0x0) and is not grayscale
               if (testImg.width > 0 && testImg.height > 0) {
-                resolve(true);
+                // Check if image is likely grayscale by sampling pixels
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.min(testImg.width, 100);
+                canvas.height = Math.min(testImg.height, 100);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(testImg, 0, 0, canvas.width, canvas.height);
+                
+                try {
+                  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                  const data = imageData.data;
+                  let colorDiff = 0;
+                  const sampleSize = Math.min(1000, data.length / 4);
+                  
+                  // Sample pixels to check if image is grayscale
+                  for (let i = 0; i < sampleSize * 4; i += 40) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    colorDiff += Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
+                  }
+                  
+                  const avgColorDiff = colorDiff / sampleSize;
+                  const isGrayscale = avgColorDiff < 10; // Threshold for grayscale detection
+                  
+                  resolve({
+                    valid: true,
+                    width: testImg.width,
+                    height: testImg.height,
+                    isGrayscale,
+                    aspectRatio: testImg.width / testImg.height
+                  });
+                } catch (e) {
+                  // If we can't check pixels (CORS, etc), assume it's valid
+                  resolve({
+                    valid: true,
+                    width: testImg.width,
+                    height: testImg.height,
+                    isGrayscale: false,
+                    aspectRatio: testImg.width / testImg.height
+                  });
+                }
               } else {
-                resolve(false);
+                resolve({ valid: false });
               }
             };
-            testImg.onerror = () => resolve(false);
+            testImg.onerror = () => resolve({ valid: false });
             testImg.src = dataUrl;
           });
           
-          if (isValid) {
-            validatedImages.push({ ...img, dataUrl });
+          if (imageInfo.valid) {
+            validatedImages.push({ ...img, dataUrl, ...imageInfo });
           }
         } catch (error) {
           console.log('Skipping invalid image:', error);
@@ -765,13 +891,77 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // Add validated images to photos
-      for (let index = 0; index < validatedImages.length; index++) {
-        const img = validatedImages[index];
+      // 4. Remove duplicates based on dimensions and quality
+      // Group images by similar aspect ratio and dimensions
+      const uniqueImages = [];
+      const aspectRatioTolerance = 0.05; // 5% tolerance for aspect ratio matching
+      
+      for (const img of validatedImages) {
+        // Check if we already have a similar image
+        const isDuplicate = uniqueImages.some(existing => {
+          // Check if aspect ratios are similar
+          const aspectRatioDiff = Math.abs(existing.aspectRatio - img.aspectRatio);
+          const isSimilarAspectRatio = aspectRatioDiff < aspectRatioTolerance;
+          
+          // Check if dimensions are similar (within 20% or exact match)
+          const widthRatio = Math.min(existing.width, img.width) / Math.max(existing.width, img.width);
+          const heightRatio = Math.min(existing.height, img.height) / Math.max(existing.height, img.height);
+          const isSimilarSize = widthRatio > 0.8 && heightRatio > 0.8;
+          
+          return isSimilarAspectRatio && isSimilarSize;
+        });
+        
+        // Skip grayscale images if we already have a color version
+        const hasColorVersion = uniqueImages.some(existing => 
+          !existing.isGrayscale && 
+          Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
+        );
+        
+        if (!isDuplicate && !(img.isGrayscale && hasColorVersion)) {
+          // Prefer non-grayscale images
+          if (img.isGrayscale) {
+            // Only add grayscale if no color version exists
+            const colorIndex = uniqueImages.findIndex(existing => 
+              !existing.isGrayscale && 
+              Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
+            );
+            if (colorIndex === -1) {
+              uniqueImages.push(img);
+            }
+          } else {
+            // Remove any grayscale version if this is a color version
+            const grayscaleIndex = uniqueImages.findIndex(existing => 
+              existing.isGrayscale && 
+              Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
+            );
+            if (grayscaleIndex !== -1) {
+              uniqueImages.splice(grayscaleIndex, 1);
+            }
+            uniqueImages.push(img);
+          }
+        }
+      }
+      
+      // Add validated and deduplicated images to photos with orientation correction
+      for (let index = 0; index < uniqueImages.length; index++) {
+        const img = uniqueImages[index];
+        let correctedDataUrl = img.dataUrl;
+        
+        // Check for EXIF orientation and correct if needed
+        try {
+          const arrayBuffer = await img.blob.arrayBuffer();
+          const orientation = getOrientationFromExif(arrayBuffer);
+          if (orientation !== 1) {
+            correctedDataUrl = await correctImageOrientation(img.dataUrl, orientation);
+          }
+        } catch (error) {
+          console.log('Could not read EXIF orientation for extracted image, using as-is:', error);
+        }
+        
         const file = new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` });
         const newPhoto = {
           id: Date.now() + Math.random() + index,
-          src: img.dataUrl,
+          src: correctedDataUrl,
           caption: '',
           rotation: 0,
           file
@@ -948,11 +1138,44 @@ const PhotoReportBuilder = () => {
         const imageMaxHeightIn = contentHeight - 0.9; // Leave room for caption
         const gap = 0.5; // Gap between images
         
+        // Pre-calculate image heights for vertical centering
+        const photoHeights = [];
+        for (let slot = 0; slot < 2 && index + slot < photos.length; slot++) {
+          const img = await loadImage(photos[index + slot].src);
+          const rotation = ((photos[index + slot].rotation || 0) % 360 + 360) % 360;
+          const rotated = rotation % 180 !== 0;
+          const originalWidth = img.naturalWidth || img.width;
+          const originalHeight = img.naturalHeight || img.height;
+          const orientedWidth = rotated ? originalHeight : originalWidth;
+          const orientedHeight = rotated ? originalWidth : originalHeight;
+          const aspect = orientedWidth / orientedHeight;
+          
+          let targetWidthIn = Math.min(slotWidthIn, imageMaxHeightIn * aspect);
+          let targetHeightIn = targetWidthIn / aspect;
+          if (targetHeightIn > imageMaxHeightIn) { 
+            targetHeightIn = imageMaxHeightIn; 
+            targetWidthIn = targetHeightIn * aspect; 
+          }
+          photoHeights.push(targetHeightIn);
+        }
+        
+        // Find max height to calculate vertical centering
+        const maxPhotoHeight = Math.max(...photoHeights);
+        const captionHeight = 0.9;
+        const totalContentHeight = maxPhotoHeight + captionHeight;
+        const verticalSpace = contentHeight - totalContentHeight;
+        const topMargin = margin + (verticalSpace > 0 ? verticalSpace / 2 : 0);
+        
         for (let slot = 0; slot < 2 && index < photos.length; slot++) {
           const xIn = margin + (slot === 0 ? 0 : slotWidthIn + gap);
-          const { imageHeightIn } = await drawPhoto(photos[index], xIn, margin, slotWidthIn, imageMaxHeightIn);
+          
+          // Center this image vertically within its slot if it's smaller than maxPhotoHeight
+          const imageVerticalOffset = (maxPhotoHeight - photoHeights[slot]) / 2;
+          const yIn = topMargin + imageVerticalOffset;
+          
+          const { imageHeightIn } = await drawPhoto(photos[index], xIn, yIn, slotWidthIn, imageMaxHeightIn);
           const caption = photos[index].caption || '';
-          const captionY = margin + imageHeightIn + 0.2;
+          const captionY = topMargin + maxPhotoHeight + 0.2;
           const lines = doc.splitTextToSize(caption, slotWidthIn);
           doc.setFontSize(10);
           // Center captions horizontally
