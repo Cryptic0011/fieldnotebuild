@@ -529,12 +529,59 @@ const PhotoReportBuilder = () => {
   const lastSelectedId = useRef(null);
   const [photosPerPage, setPhotosPerPage] = useState(1);
   const [compression, setCompression] = useState('regular');
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
   const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
   
   // Detect iOS for special handling
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  
+  // Load saved photos from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('fieldnote_photo_data');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.photos) {
+          // Reconstruct photos with blob URLs
+          const restoredPhotos = data.photos.map(photo => ({
+            ...photo,
+            // Keep the src as is - it will be a blob URL or data URL
+          }));
+          setPhotos(restoredPhotos);
+        }
+        if (data.photosPerPage) setPhotosPerPage(data.photosPerPage);
+        if (data.compression) setCompression(data.compression);
+      } catch (error) {
+        console.error('Failed to load saved photo data:', error);
+      }
+    }
+    setHasLoadedFromStorage(true);
+  }, []);
+
+  // Auto-save to localStorage whenever photos or settings change
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return; // Don't save until initial load is complete
+    
+    const dataToSave = {
+      photos: photos.map(photo => ({
+        id: photo.id,
+        src: photo.src,
+        caption: photo.caption,
+        rotation: photo.rotation,
+      })),
+      photosPerPage,
+      compression,
+      savedAt: new Date().toISOString()
+    };
+    
+    try {
+      localStorage.setItem('fieldnote_photo_data', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('Failed to save photo data:', error);
+    }
+  }, [photos, photosPerPage, compression, hasLoadedFromStorage]);
   
   // Cleanup object URLs on unmount to prevent memory leaks
   useEffect(() => {
@@ -704,6 +751,27 @@ const PhotoReportBuilder = () => {
     setSelectedPhotos(prev => { const s = new Set(prev); s.delete(id); return s; });
   };
 
+  const clearAllPhotos = () => {
+    const confirmed = window.confirm('Are you sure? This will delete all photos and captions.');
+    if (confirmed) {
+      // Cleanup blob URLs before clearing
+      photos.forEach(photo => {
+        if (photo.src && photo.src.startsWith('blob:')) {
+          URL.revokeObjectURL(photo.src);
+        }
+      });
+      
+      // Clear all state
+      setPhotos([]);
+      setSelectedPhotos(new Set());
+      setPhotosPerPage(1);
+      setCompression('regular');
+      
+      // Clear localStorage
+      localStorage.removeItem('fieldnote_photo_data');
+    }
+  };
+
   const handlePhotoClick = (e, id) => {
     const newSelection = new Set(selectedPhotos);
     if (e.shiftKey && lastSelectedId.current) {
@@ -809,17 +877,20 @@ const PhotoReportBuilder = () => {
       if (!isFirstPage) doc.addPage();
       isFirstPage = false;
       if (photosPerPage === 2) {
-        const slotHeightIn = contentHeight / 2;
-        const imageMaxHeightIn = slotHeightIn - 0.7;
-        let yIn = margin;
+        // Side by side layout for 2 images per page in landscape
+        const slotWidthIn = contentWidth / 2 - 0.25; // Split width with gap
+        const imageMaxHeightIn = contentHeight - 0.9; // Leave room for caption
+        const gap = 0.5; // Gap between images
+        
         for (let slot = 0; slot < 2 && index < photos.length; slot++) {
-          const { imageHeightIn } = await drawPhoto(photos[index], margin, yIn, contentWidth, imageMaxHeightIn);
+          const xIn = margin + (slot === 0 ? 0 : slotWidthIn + gap);
+          const { imageHeightIn } = await drawPhoto(photos[index], xIn, margin, slotWidthIn, imageMaxHeightIn);
           const caption = photos[index].caption || '';
-          const captionY = yIn + imageHeightIn + 0.2;
-          const lines = doc.splitTextToSize(caption, contentWidth);
-          doc.setFontSize(12);
-          doc.text(lines, margin, captionY, { maxWidth: contentWidth });
-          index++; yIn += slotHeightIn;
+          const captionY = margin + imageHeightIn + 0.2;
+          const lines = doc.splitTextToSize(caption, slotWidthIn);
+          doc.setFontSize(10);
+          doc.text(lines, xIn, captionY, { maxWidth: slotWidthIn });
+          index++;
         }
       } else {
         const imageMaxHeightIn = contentHeight - 1.0;
@@ -854,6 +925,20 @@ const PhotoReportBuilder = () => {
     <div>
       <div id="photo-controls" className="section-card no-print">
         <h2>Photo Report Builder</h2>
+        
+        {/* Clear Photos Button */}
+        {photos.length > 0 && (
+          <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+            <button 
+              className="clear-photos-btn" 
+              onClick={clearAllPhotos}
+              style={{ background: 'var(--danger-color)' }}
+            >
+              Clear All Photos
+            </button>
+          </div>
+        )}
+        
         <input type="file" multiple accept="image/*,.heic,.heif,.msg" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
         <div id="photo-drop-zone" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onClick={openFilePicker}>
           {isIOS ? 'Tap to Upload Photos' : 'Drag & drop photos here or click to upload'}
@@ -940,7 +1025,7 @@ const PhotoReportBuilder = () => {
         {photosPerPage === 2 ? (
           photos.map((photo, index) => (
             (index % 2 === 0) && (
-              <div className="photo-report-page" key={`page-${index}`}>
+              <div className="photo-report-page" key={`page-${index}`} style={{ flexDirection: 'row' }}>
                 <div className="photo-report-item">
                   <img src={photos[index].src} className={photos[index].rotation % 180 !== 0 ? 'rotated-print' : ''} style={{ transform: `rotate(${photos[index].rotation}deg)` }} />
                   <p>{photos[index].caption}</p>
