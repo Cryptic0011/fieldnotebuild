@@ -11,7 +11,9 @@ if ('serviceWorker' in navigator) {
 
 // iOS Add to Home Screen Prompt Component
 const IOSInstallPrompt = () => {
-  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // Detect iOS devices including iPad on iPadOS 13+
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const isPWA =
     window.matchMedia("(display-mode: standalone)").matches ||
     window.navigator.standalone === true;
@@ -275,6 +277,15 @@ const InspectionBuilder = () => {
 
   const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
 
+  const sendEmail = () => {
+    const today = new Date();
+    const formattedDate = `${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getDate().toString().padStart(2, '0')}/${today.getFullYear()}`;
+    const subject = `Field Inspection Note ${formattedDate}`;
+    const body = encodeURIComponent(generatedNote);
+    const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${body}`;
+    window.location.href = mailtoLink;
+  };
+
   const clearInspection = () => {
     const confirmed = window.confirm('Are you sure? This will delete your saved inspection notes.');
     if (confirmed) {
@@ -445,6 +456,7 @@ const InspectionBuilder = () => {
       <pre>{generatedNote}</pre>
       <div className="note-actions">
         <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+        <button className="copy-btn" onClick={sendEmail}>Send Email</button>
         <button className="rewrite-btn" onClick={rewriteNoteWithAI} disabled={isRewriting}>
           {isRewriting ? 'Rewriting…' : 'Rewrite with AI'}
         </button>
