@@ -101,7 +101,7 @@ const InspectionBuilder = () => {
   const initialFields = {
     colDetails: '', showCol: false,
     perimeterGeneral: 'No such indicators were observed.', perimeterFront: 'No wind or hail damage observed.', perimeterLeft: 'No wind or hail damage observed.', perimeterRear: 'No wind or hail damage observed.', perimeterRight: 'No wind or hail damage observed.', perimeterEstimate: 'None prepared for no damage', showPerimeter: false,
-    roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false,
+    roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false, showRoofCount: true, showRoofDetails: true, roofLayers: '1', roofDripEdge: 'no', roofValleyMetal: 'no', roofRidgeVent: 'yes', roofPipeJacks: '', roofHVAC: '', roofTurtleVent: '', roofPower: '', roofSkylight: '', roofSatellite: '', roofCustom: '',
     otherStructuresDetails: '', showOtherStructures: false,
     rooms: [],
     subroDetails: 'No subro potential', showSubro: true,
@@ -219,10 +219,31 @@ const InspectionBuilder = () => {
         case 'roof':
           if (fields.showRoof) {
             note += `\n\n${fields.adjusterName} Inspected the roof, which revealed the following:\n${fields.roofGeneral}`;
-            note += `\nFront Facing Slope(s): ${fields.roofFrontHits} hits per test square; ${fields.roofFrontWind} wind damaged shingles`;
-            note += `\nRight Facing Slope(s): ${fields.roofRightHits} hits per test square; ${fields.roofRightWind} wind damaged shingles`;
-            note += `\nRear Facing Slope(s): ${fields.roofRearHits} hits per test square; ${fields.roofRearWind} wind damaged shingles`;
-            note += `\nLeft Facing Slope(s): ${fields.roofLeftHits} hits per test square; ${fields.roofLeftWind} wind damaged shingles`;
+            
+            // Add hit/wind count section if toggled on
+            if (fields.showRoofCount) {
+              note += `\nFront Facing Slope(s): ${fields.roofFrontHits} hits per test square; ${fields.roofFrontWind} wind damaged shingles`;
+              note += `\nRight Facing Slope(s): ${fields.roofRightHits} hits per test square; ${fields.roofRightWind} wind damaged shingles`;
+              note += `\nRear Facing Slope(s): ${fields.roofRearHits} hits per test square; ${fields.roofRearWind} wind damaged shingles`;
+              note += `\nLeft Facing Slope(s): ${fields.roofLeftHits} hits per test square; ${fields.roofLeftWind} wind damaged shingles`;
+            }
+            
+            // Add roof details section if toggled on
+            if (fields.showRoofDetails) {
+              note += `\n\nRoof Details:`;
+              note += `\nLayers: ${fields.roofLayers}`;
+              note += `\nDrip edge: ${fields.roofDripEdge}`;
+              note += `\nValley metal: ${fields.roofValleyMetal}`;
+              note += `\nRidge vent: ${fields.roofRidgeVent}`;
+              if (fields.roofPipeJacks) note += `\nPipe jacks: ${fields.roofPipeJacks}`;
+              if (fields.roofHVAC) note += `\nHVAC: ${fields.roofHVAC}`;
+              if (fields.roofTurtleVent) note += `\nTurtle Vent: ${fields.roofTurtleVent}`;
+              if (fields.roofPower) note += `\nPower: ${fields.roofPower}`;
+              if (fields.roofSkylight) note += `\nSkylight: ${fields.roofSkylight}`;
+              if (fields.roofSatellite) note += `\nSatellite: ${fields.roofSatellite}`;
+              if (fields.roofCustom) note += `\n${fields.roofCustom}`;
+            }
+            
             note += `\nEstimate: ${fields.roofEstimate}`;
           }
           break;
@@ -347,11 +368,45 @@ const InspectionBuilder = () => {
     roof: <SectionToggle title="Roof Inspection" show={fields.showRoof} onToggle={() => handleFieldChange('showRoof', !fields.showRoof)}>
       <label>Adjuster Name:</label><select value={fields.adjusterName} onChange={e => handleFieldChange('adjusterName', e.target.value)}><option value="I">I</option><option value="Seeknow">Seeknow</option></select>
       <label>General Observations:</label><textarea value={fields.roofGeneral} onChange={e => handleFieldChange('roofGeneral', e.target.value)} placeholder="e.g., No wind or hail damage..."></textarea>
-      <label>Front Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofFrontHits} onChange={e => handleFieldChange('roofFrontHits', e.target.value)} /><input type="text" value={fields.roofFrontWind} onChange={e => handleFieldChange('roofFrontWind', e.target.value)} /></div>
-      <label>Right Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofRightHits} onChange={e => handleFieldChange('roofRightHits', e.target.value)} /><input type="text" value={fields.roofRightWind} onChange={e => handleFieldChange('roofRightWind', e.target.value)} /></div>
-      <label>Rear Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofRearHits} onChange={e => handleFieldChange('roofRearHits', e.target.value)} /><input type="text" value={fields.roofRearWind} onChange={e => handleFieldChange('roofRearWind', e.target.value)} /></div>
-      <label>Left Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofLeftHits} onChange={e => handleFieldChange('roofLeftHits', e.target.value)} /><input type="text" value={fields.roofLeftWind} onChange={e => handleFieldChange('roofLeftWind', e.target.value)} /></div>
-      <label>Estimate:</label><input type="text" value={fields.roofEstimate} onChange={e => handleFieldChange('roofEstimate', e.target.value)} />
+      
+      <div style={{marginTop: '1rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
+        <h3 onClick={() => handleFieldChange('showRoofCount', !fields.showRoofCount)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', margin: 0 }}>
+          Hit/Wind Count
+          <span style={{marginLeft: 'auto', fontSize:'1.5rem', fontWeight: 400, color: 'var(--primary-color)'}}>{fields.showRoofCount ? '-' : '+'}</span>
+        </h3>
+        {fields.showRoofCount && (
+          <div style={{paddingTop: '1rem', animation: 'fadeIn 0.5s ease'}}>
+            <label>Front Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofFrontHits} onChange={e => handleFieldChange('roofFrontHits', e.target.value)} placeholder="Hits" /><input type="text" value={fields.roofFrontWind} onChange={e => handleFieldChange('roofFrontWind', e.target.value)} placeholder="Wind" /></div>
+            <label>Right Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofRightHits} onChange={e => handleFieldChange('roofRightHits', e.target.value)} placeholder="Hits" /><input type="text" value={fields.roofRightWind} onChange={e => handleFieldChange('roofRightWind', e.target.value)} placeholder="Wind" /></div>
+            <label>Rear Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofRearHits} onChange={e => handleFieldChange('roofRearHits', e.target.value)} placeholder="Hits" /><input type="text" value={fields.roofRearWind} onChange={e => handleFieldChange('roofRearWind', e.target.value)} placeholder="Wind" /></div>
+            <label>Left Slope Hits/Wind:</label><div style={{display:'flex', gap:'1rem'}}><input type="text" value={fields.roofLeftHits} onChange={e => handleFieldChange('roofLeftHits', e.target.value)} placeholder="Hits" /><input type="text" value={fields.roofLeftWind} onChange={e => handleFieldChange('roofLeftWind', e.target.value)} placeholder="Wind" /></div>
+          </div>
+        )}
+      </div>
+
+      <div style={{marginTop: '1rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px'}}>
+        <h3 onClick={() => handleFieldChange('showRoofDetails', !fields.showRoofDetails)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', margin: 0 }}>
+          Roof Details
+          <span style={{marginLeft: 'auto', fontSize:'1.5rem', fontWeight: 400, color: 'var(--primary-color)'}}>{fields.showRoofDetails ? '-' : '+'}</span>
+        </h3>
+        {fields.showRoofDetails && (
+          <div style={{paddingTop: '1rem', animation: 'fadeIn 0.5s ease'}}>
+            <label>Layers:</label><input type="text" value={fields.roofLayers} onChange={e => handleFieldChange('roofLayers', e.target.value)} />
+            <label>Drip edge:</label><select value={fields.roofDripEdge} onChange={e => handleFieldChange('roofDripEdge', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Valley metal:</label><select value={fields.roofValleyMetal} onChange={e => handleFieldChange('roofValleyMetal', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Ridge vent:</label><select value={fields.roofRidgeVent} onChange={e => handleFieldChange('roofRidgeVent', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Pipe jacks:</label><input type="text" value={fields.roofPipeJacks} onChange={e => handleFieldChange('roofPipeJacks', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>HVAC:</label><input type="text" value={fields.roofHVAC} onChange={e => handleFieldChange('roofHVAC', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Turtle Vent:</label><input type="text" value={fields.roofTurtleVent} onChange={e => handleFieldChange('roofTurtleVent', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Power:</label><input type="text" value={fields.roofPower} onChange={e => handleFieldChange('roofPower', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Skylight:</label><input type="text" value={fields.roofSkylight} onChange={e => handleFieldChange('roofSkylight', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Satellite:</label><input type="text" value={fields.roofSatellite} onChange={e => handleFieldChange('roofSatellite', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Custom:</label><input type="text" value={fields.roofCustom} onChange={e => handleFieldChange('roofCustom', e.target.value)} placeholder="Add custom roof specification" />
+          </div>
+        )}
+      </div>
+
+      <label style={{marginTop: '1rem'}}>Estimate:</label><input type="text" value={fields.roofEstimate} onChange={e => handleFieldChange('roofEstimate', e.target.value)} />
     </SectionToggle>,
     otherStructures: <SectionToggle title="Other Structures" show={fields.showOtherStructures} onToggle={() => handleFieldChange('showOtherStructures', !fields.showOtherStructures)}>
       <textarea value={fields.otherStructuresDetails} onChange={e => handleFieldChange('otherStructuresDetails', e.target.value)} placeholder="Enter details..."></textarea>
