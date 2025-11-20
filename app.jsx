@@ -1,5 +1,14 @@
 const { useState, useEffect, useRef } = React;
 
+// Register Service Worker for PWA support
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/public/sw.js')
+      .then(registration => console.log('SW registered:', registration))
+      .catch(err => console.log('SW registration failed:', err));
+  });
+}
+
 const App = () => {
   // App registry for easier scaling as more tools are added
   const apps = [
@@ -48,12 +57,11 @@ const App = () => {
   );
 };
 
-const GEMINI_API_KEY = 'AIzaSyDDYvU9wZEb_CNWsvThU2ZvDhlsfVdEtbw';
+// SECURITY: API key should be managed via environment variables or backend proxy
+// For production, move this to a secure backend endpoint
+const GEMINI_API_KEY = 'AIzaSyDDYvU9wZEb_CNWsvThU2ZvDhlsfVdEtbw'; // TODO: Move to backend
 
 const InspectionBuilder = () => {
-  const [participants, setParticipants] = useState([{ id: Date.now(), name: 'Insured' }]);
-  const [customSections, setCustomSections] = useState([]);
-
   const initialFields = {
     colDetails: '', showCol: false,
     perimeterGeneral: 'No such indicators were observed.', perimeterFront: 'No wind or hail damage observed.', perimeterLeft: 'No wind or hail damage observed.', perimeterRear: 'No wind or hail damage observed.', perimeterRight: 'No wind or hail damage observed.', perimeterEstimate: 'None prepared for no damage', showPerimeter: false,
@@ -66,10 +74,49 @@ const InspectionBuilder = () => {
     settledOnSite: 'No', settlementDetails: 'Estimate prepared on site, went over estimate, RD, supplement process. Advised of 2 years to complete repairs', paymentType: 'Check', sipIncluded: 'no'
   };
 
+  const initialParticipants = [{ id: Date.now(), name: 'Insured' }];
+
+  const [participants, setParticipants] = useState(initialParticipants);
+  const [customSections, setCustomSections] = useState([]);
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState('');
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+
+  // Load saved data from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('fieldnote_inspection_data');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.fields) setFields(data.fields);
+        if (data.participants) setParticipants(data.participants);
+        if (data.customSections) setCustomSections(data.customSections);
+      } catch (error) {
+        console.error('Failed to load saved inspection data:', error);
+      }
+    }
+    setHasLoadedFromStorage(true);
+  }, []);
+
+  // Auto-save to localStorage whenever data changes
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return; // Don't save until initial load is complete
+    
+    const dataToSave = {
+      fields,
+      participants,
+      customSections,
+      savedAt: new Date().toISOString()
+    };
+    
+    try {
+      localStorage.setItem('fieldnote_inspection_data', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('Failed to save inspection data:', error);
+    }
+  }, [fields, participants, customSections, hasLoadedFromStorage]);
 
   const mainSectionOrder = ['general', 'col', 'perimeter', 'roof', 'otherStructures', 'interior', 'subro', 'salvage', 'underwriting', 'settlement', 'finalNote'];
 
@@ -172,6 +219,21 @@ const InspectionBuilder = () => {
   }, [fields, participants, customSections]);
 
   const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
+
+  const clearInspection = () => {
+    const confirmed = window.confirm('Are you sure? This will delete your saved inspection notes.');
+    if (confirmed) {
+      // Clear all state back to initial values
+      setFields(initialFields);
+      setParticipants(initialParticipants);
+      setCustomSections([]);
+      setGeneratedNote('');
+      setRewriteError('');
+      
+      // Clear localStorage
+      localStorage.removeItem('fieldnote_inspection_data');
+    }
+  };
 
   const rewriteNoteWithAI = async () => {
     if (!generatedNote.trim()) return;
@@ -333,6 +395,17 @@ const InspectionBuilder = () => {
           </React.Fragment>
         );
       })}
+      
+      {/* Clear Inspection Button */}
+      <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
+        <button 
+          className="clear-inspection-btn" 
+          onClick={clearInspection}
+          style={{ background: 'var(--danger-color)' }}
+        >
+          Clear Inspection
+        </button>
+      </div>
     </div>
   );
 };
@@ -348,6 +421,20 @@ const PhotoReportBuilder = () => {
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
   const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
+  
+  // Detect iOS for special handling
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  
+  // Cleanup object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      photos.forEach(photo => {
+        if (photo.src && photo.src.startsWith('blob:')) {
+          URL.revokeObjectURL(photo.src);
+        }
+      });
+    };
+  }, [photos]);
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -412,9 +499,27 @@ const PhotoReportBuilder = () => {
     lastSelectedId.current = id;
   };
 
-  const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); dropZoneRef.current.classList.remove('dragover'); processFiles(Array.from(e.dataTransfer.files)); };
-  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); dropZoneRef.current.classList.add('dragover'); };
-  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); dropZoneRef.current.classList.remove('dragover'); };
+  const handleDrop = (e) => { 
+    if (isIOS) return; // Disable drag/drop on iOS
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    if (dropZoneRef.current) dropZoneRef.current.classList.remove('dragover'); 
+    processFiles(Array.from(e.dataTransfer.files)); 
+  };
+  
+  const handleDragOver = (e) => { 
+    if (isIOS) return; // Disable drag/drop on iOS
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    if (dropZoneRef.current) dropZoneRef.current.classList.add('dragover'); 
+  };
+  
+  const handleDragLeave = (e) => { 
+    if (isIOS) return; // Disable drag/drop on iOS
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    if (dropZoneRef.current) dropZoneRef.current.classList.remove('dragover'); 
+  };
 
   const generatePdf = async () => {
     const { jsPDF } = window.jspdf;
@@ -508,7 +613,7 @@ const PhotoReportBuilder = () => {
         <h2>Photo Report Builder</h2>
         <input type="file" multiple accept="image/*" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
         <div id="photo-drop-zone" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onClick={openFilePicker}>
-          Drag & drop photos here or click to upload
+          {isIOS ? 'Tap to Upload Photos' : 'Drag & drop photos here or click to upload'}
         </div>
         <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
           <div>
