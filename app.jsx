@@ -101,7 +101,7 @@ const InspectionBuilder = () => {
   const initialFields = {
     colDetails: '', showCol: false,
     perimeterGeneral: 'No such indicators were observed.', perimeterFront: 'No wind or hail damage observed.', perimeterLeft: 'No wind or hail damage observed.', perimeterRear: 'No wind or hail damage observed.', perimeterRight: 'No wind or hail damage observed.', perimeterEstimate: 'None prepared for no damage', showPerimeter: false,
-    roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false, showRoofCount: true, showRoofDetails: true, roofLayers: '1', roofDripEdge: 'no', roofValleyMetal: 'no', roofRidgeVent: 'yes', roofPipeJacks: '', roofHVAC: '', roofTurtleVent: '', roofPower: '', roofSkylight: '', roofSatellite: '', roofCustom: '',
+    roofGeneral: '', roofFrontHits: '0', roofFrontWind: '0', roofRightHits: '0', roofRightWind: '0', roofRearHits: '0', roofRearWind: '0', roofLeftHits: '0', roofLeftWind: '0', roofEstimate: 'No estimate prepared', adjusterName: 'I', showRoof: false, showRoofCount: true, showRoofDetails: true, roofLayers: '1', roofDripEdge: 'no', roofValleyMetal: 'no', roofRidgeVent: 'yes', roofPipeJacks: '', roofHVAC: '', roofTurtleVent: '', roofPower: '', roofSkylight: '', roofSatellite: '',
     otherStructuresDetails: '', showOtherStructures: false,
     rooms: [],
     subroDetails: 'No subro potential', showSubro: true,
@@ -231,20 +231,18 @@ const InspectionBuilder = () => {
             // Add roof details section if toggled on
             if (fields.showRoofDetails) {
               note += `\n\nRoof Details:`;
-              note += `\nLayers: ${fields.roofLayers}`;
-              note += `\nDrip edge: ${fields.roofDripEdge}`;
-              note += `\nValley metal: ${fields.roofValleyMetal}`;
-              note += `\nRidge vent: ${fields.roofRidgeVent}`;
+              note += `\nLayers: ${fields.roofLayers || '1'}`;
+              note += `\nDrip edge: ${fields.roofDripEdge || 'no'}`;
+              note += `\nValley metal: ${fields.roofValleyMetal || 'no'}`;
+              note += `\nRidge vent: ${fields.roofRidgeVent || 'yes'}`;
               if (fields.roofPipeJacks) note += `\nPipe jacks: ${fields.roofPipeJacks}`;
               if (fields.roofHVAC) note += `\nHVAC: ${fields.roofHVAC}`;
               if (fields.roofTurtleVent) note += `\nTurtle Vent: ${fields.roofTurtleVent}`;
               if (fields.roofPower) note += `\nPower: ${fields.roofPower}`;
-              if (fields.roofSkylight) note += `\nSkylight: ${fields.roofSkylight}`;
               if (fields.roofSatellite) note += `\nSatellite: ${fields.roofSatellite}`;
-              if (fields.roofCustom) note += `\n${fields.roofCustom}`;
             }
             
-            note += `\nEstimate: ${fields.roofEstimate}`;
+            note += `\n\nEstimate: ${fields.roofEstimate}`;
           }
           break;
         case 'otherStructures':
@@ -391,17 +389,16 @@ const InspectionBuilder = () => {
         </h3>
         {fields.showRoofDetails && (
           <div style={{paddingTop: '1rem', animation: 'fadeIn 0.5s ease'}}>
-            <label>Layers:</label><input type="text" value={fields.roofLayers} onChange={e => handleFieldChange('roofLayers', e.target.value)} />
-            <label>Drip edge:</label><select value={fields.roofDripEdge} onChange={e => handleFieldChange('roofDripEdge', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
-            <label>Valley metal:</label><select value={fields.roofValleyMetal} onChange={e => handleFieldChange('roofValleyMetal', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
-            <label>Ridge vent:</label><select value={fields.roofRidgeVent} onChange={e => handleFieldChange('roofRidgeVent', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Layers:</label><input type="text" value={fields.roofLayers || '1'} onChange={e => handleFieldChange('roofLayers', e.target.value)} />
+            <label>Drip edge:</label><select value={fields.roofDripEdge || 'no'} onChange={e => handleFieldChange('roofDripEdge', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Valley metal:</label><select value={fields.roofValleyMetal || 'no'} onChange={e => handleFieldChange('roofValleyMetal', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
+            <label>Ridge vent:</label><select value={fields.roofRidgeVent || 'yes'} onChange={e => handleFieldChange('roofRidgeVent', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
             <label>Pipe jacks:</label><input type="text" value={fields.roofPipeJacks} onChange={e => handleFieldChange('roofPipeJacks', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
             <label>HVAC:</label><input type="text" value={fields.roofHVAC} onChange={e => handleFieldChange('roofHVAC', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
             <label>Turtle Vent:</label><input type="text" value={fields.roofTurtleVent} onChange={e => handleFieldChange('roofTurtleVent', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
             <label>Power:</label><input type="text" value={fields.roofPower} onChange={e => handleFieldChange('roofPower', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
             <label>Skylight:</label><input type="text" value={fields.roofSkylight} onChange={e => handleFieldChange('roofSkylight', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
             <label>Satellite:</label><input type="text" value={fields.roofSatellite} onChange={e => handleFieldChange('roofSatellite', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>Custom:</label><input type="text" value={fields.roofCustom} onChange={e => handleFieldChange('roofCustom', e.target.value)} placeholder="Add custom roof specification" />
           </div>
         )}
       </div>
