@@ -530,6 +530,7 @@ const PhotoReportBuilder = () => {
   const [photosPerPage, setPhotosPerPage] = useState(1);
   const [compression, setCompression] = useState('regular');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
   const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
@@ -583,16 +584,7 @@ const PhotoReportBuilder = () => {
     }
   }, [photos, photosPerPage, compression, hasLoadedFromStorage]);
   
-  // Cleanup object URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      photos.forEach(photo => {
-        if (photo.src && photo.src.startsWith('blob:')) {
-          URL.revokeObjectURL(photo.src);
-        }
-      });
-    };
-  }, [photos]);
+  // Note: No cleanup needed for data URLs (they're stored as base64 strings)
 
   const handleFileChange = async (e) => {
     const files = Array.from(e.target.files);
@@ -611,19 +603,30 @@ const PhotoReportBuilder = () => {
       }
       // Handle regular images
       else if (file.type.startsWith('image/')) {
-        const newPhoto = { id: Date.now() + Math.random(), src: URL.createObjectURL(file), caption: '', rotation: 0, file };
+        // Convert to data URL for persistence
+        const dataUrl = await fileToDataUrl(file);
+        const newPhoto = { id: Date.now() + Math.random(), src: dataUrl, caption: '', rotation: 0, file };
         setPhotos(prev => [...prev, newPhoto]);
       }
     }
   };
 
+  const fileToDataUrl = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const processHeicFile = async (file) => {
     try {
-      // For HEIC files, we'll create a blob URL directly
-      // Modern browsers and iOS handle HEIC natively
+      // For HEIC files, convert to data URL for persistence
+      const dataUrl = await fileToDataUrl(file);
       const newPhoto = { 
         id: Date.now() + Math.random(), 
-        src: URL.createObjectURL(file), 
+        src: dataUrl, 
         caption: '', 
         rotation: 0, 
         file,
@@ -698,17 +701,20 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // Add extracted images to photos
-      images.forEach((img, index) => {
+      // Add extracted images to photos - convert to data URLs for persistence
+      for (let index = 0; index < images.length; index++) {
+        const img = images[index];
+        const file = new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` });
+        const dataUrl = await fileToDataUrl(file);
         const newPhoto = {
           id: Date.now() + Math.random() + index,
-          src: URL.createObjectURL(img.blob),
+          src: dataUrl,
           caption: '',
           rotation: 0,
-          file: new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` })
+          file
         };
         setPhotos(prev => [...prev, newPhoto]);
-      });
+      }
       
     } catch (error) {
       console.error('Error processing .msg file:', error);
@@ -754,13 +760,6 @@ const PhotoReportBuilder = () => {
   const clearAllPhotos = () => {
     const confirmed = window.confirm('Are you sure? This will delete all photos and captions.');
     if (confirmed) {
-      // Cleanup blob URLs before clearing
-      photos.forEach(photo => {
-        if (photo.src && photo.src.startsWith('blob:')) {
-          URL.revokeObjectURL(photo.src);
-        }
-      });
-      
       // Clear all state
       setPhotos([]);
       setSelectedPhotos(new Set());
@@ -812,7 +811,11 @@ const PhotoReportBuilder = () => {
   };
 
   const generatePdf = async () => {
-    const { jsPDF } = window.jspdf;
+    if (isGeneratingPdf) return; // Prevent multiple simultaneous generations
+    setIsGeneratingPdf(true);
+    
+    try {
+      const { jsPDF } = window.jspdf;
     // Use landscape orientation when 2 images per page is selected
     const orientation = photosPerPage === 2 ? 'landscape' : 'portrait';
     const doc = new jsPDF({ unit: 'in', format: 'letter', orientation });
@@ -904,18 +907,24 @@ const PhotoReportBuilder = () => {
       }
     }
     
-    // iOS-specific handling: use download instead of opening in new tab
-    if (isIOS) {
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const filename = `photo-report-${timestamp}.pdf`;
-      
-      // Save the PDF directly
-      doc.save(filename);
-    } else {
-      // For other browsers, open in new tab for preview
-      const blobUrl = doc.output('bloburl');
-      window.open(blobUrl, '_blank');
+      // iOS-specific handling: use download instead of opening in new tab
+      if (isIOS) {
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const filename = `photo-report-${timestamp}.pdf`;
+        
+        // Save the PDF directly
+        doc.save(filename);
+      } else {
+        // For other browsers, open in new tab for preview
+        const blobUrl = doc.output('bloburl');
+        window.open(blobUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -959,7 +968,9 @@ const PhotoReportBuilder = () => {
               <option value="smallest">Smallest</option>
             </select>
           </div>
-          <button onClick={generatePdf}>Generate PDF</button>
+          <button onClick={generatePdf} disabled={isGeneratingPdf}>
+            {isGeneratingPdf ? 'Generating PDF...' : 'Generate PDF'}
+          </button>
         </div>
       </div>
 

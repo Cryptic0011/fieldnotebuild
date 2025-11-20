@@ -160,7 +160,20 @@ button:hover { background: var(--primary-dark); transform: translateY(-2px); box
 
 pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; min-height: 150px; line-height: 1.6; color: var(--text-color); }
 
-.note-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
+.note-actions { display: flex; justify-content: center; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
+
+/* Mobile responsive styling for note actions */
+@media (max-width: 768px) {
+  .note-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .note-actions button {
+    width: 100%;
+    margin: 0;
+  }
+}
 
 .copy-btn { background: #27ae60; }
 .copy-btn:hover { background: #229954; }
