@@ -482,6 +482,7 @@ const InspectionBuilder = () => {
       {mainSectionOrder.map(sectionId => {
         const customSection = customSections.find(s => s.insertAfterId === sectionId);
         const hasCustomSection = !!customSection;
+        const hasContent = hasCustomSection && customSection.content.trim() !== '';
         return (
           <React.Fragment key={sectionId}>
             <div className="section-wrapper">
@@ -489,11 +490,11 @@ const InspectionBuilder = () => {
               {sectionId !== 'finalNote' && (
                 <div className="add-between-container">
                   <button
-                    className={`add-between-btn ${hasCustomSection ? 'minus' : ''}`}
+                    className={`add-between-btn ${hasContent ? 'minus' : ''}`}
                     onClick={() => toggleCustomSection(sectionId)}
-                    aria-label={hasCustomSection ? 'Remove custom note' : 'Add custom note'}
+                    aria-label={hasContent ? 'Remove custom note' : 'Add custom note'}
                   >
-                    {hasCustomSection ? '-' : '+'}
+                    {hasContent ? '-' : '+'}
                   </button>
                 </div>
               )}
