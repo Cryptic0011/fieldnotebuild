@@ -770,15 +770,27 @@ const PhotoReportBuilder = () => {
       
       const images = [];
       
+      // Helper function to find the next JPEG start after a position
+      const findNextJpegStart = (data, afterPos) => {
+        for (let i = afterPos; i < data.length - 2; i++) {
+          if (data[i] === 0xFF && data[i + 1] === 0xD8 && data[i + 2] === 0xFF) {
+            return i;
+          }
+        }
+        return data.length;
+      };
+      
       // Helper function to find the correct JPEG end marker
       // JPEG structure: SOI (FF D8) -> segments -> SOS (FF DA) -> scan data -> EOI (FF D9)
-      // The issue is that .msg files can have multiple JPEGs (thumbnails + full images)
-      // We need to find the SOS marker first, then look for EOI after it
       const findJpegEnd = (data, startPos) => {
+        // Find where the next JPEG would start (as a boundary)
+        const nextJpegStart = findNextJpegStart(data, startPos + 3);
+        const maxEnd = Math.min(nextJpegStart, startPos + 50 * 1024 * 1024); // Max 50MB per image
+        
         let pos = startPos + 2; // Skip SOI marker (FF D8)
         
         // Parse through JPEG segments to find SOS (Start of Scan)
-        while (pos < data.length - 1) {
+        while (pos < maxEnd - 1) {
           // Look for marker
           if (data[pos] !== 0xFF) {
             pos++;
@@ -786,16 +798,16 @@ const PhotoReportBuilder = () => {
           }
           
           // Skip padding FF bytes
-          while (pos < data.length && data[pos] === 0xFF) {
+          while (pos < maxEnd && data[pos] === 0xFF) {
             pos++;
           }
           
-          if (pos >= data.length) break;
+          if (pos >= maxEnd) break;
           
           const marker = data[pos];
           pos++;
           
-          // EOI marker (shouldn't happen before SOS, but handle it)
+          // EOI marker
           if (marker === 0xD9) {
             return pos;
           }
@@ -803,25 +815,37 @@ const PhotoReportBuilder = () => {
           // SOS marker - start of scan data
           if (marker === 0xDA) {
             // Skip the SOS header
-            if (pos + 2 > data.length) break;
+            if (pos + 2 > maxEnd) break;
             const segmentLength = (data[pos] << 8) | data[pos + 1];
             pos += segmentLength;
             
             // Now search for EOI (FF D9) in the entropy-coded data
-            // In entropy-coded data, FF bytes are stuffed with 00, so FF D9 is unambiguous
-            while (pos < data.length - 1) {
-              if (data[pos] === 0xFF && data[pos + 1] === 0xD9) {
-                return pos + 2; // Include the EOI marker
-              }
-              // Skip stuffed bytes (FF 00)
-              if (data[pos] === 0xFF && data[pos + 1] === 0x00) {
-                pos += 2;
-                continue;
-              }
-              // Handle restart markers (FF D0-D7)
-              if (data[pos] === 0xFF && data[pos + 1] >= 0xD0 && data[pos + 1] <= 0xD7) {
-                pos += 2;
-                continue;
+            while (pos < maxEnd - 1) {
+              if (data[pos] === 0xFF) {
+                const next = data[pos + 1];
+                // EOI marker - end of image
+                if (next === 0xD9) {
+                  return pos + 2;
+                }
+                // Stuffed byte (FF 00) - skip
+                if (next === 0x00) {
+                  pos += 2;
+                  continue;
+                }
+                // Restart markers (FF D0-D7) - skip
+                if (next >= 0xD0 && next <= 0xD7) {
+                  pos += 2;
+                  continue;
+                }
+                // Another SOS or DNL marker - could be multi-scan JPEG
+                if (next === 0xDA || next === 0xDC) {
+                  pos += 2;
+                  if (pos + 2 <= maxEnd) {
+                    const len = (data[pos] << 8) | data[pos + 1];
+                    pos += len;
+                  }
+                  continue;
+                }
               }
               pos++;
             }
@@ -833,20 +857,31 @@ const PhotoReportBuilder = () => {
             continue;
           }
           
-          // SOI marker (D8) - shouldn't happen inside, might be nested image
+          // SOI marker (D8) - nested image, stop here
           if (marker === 0xD8) {
-            continue;
+            // We hit another image start - return what we have so far
+            // Go back and find the last EOI before this point
+            for (let j = pos - 1; j > startPos + 10; j--) {
+              if (data[j - 1] === 0xFF && data[j] === 0xD9) {
+                return j + 1;
+              }
+            }
+            return -1;
           }
           
           // For all other markers, read the length and skip
-          if (pos + 2 > data.length) break;
+          if (pos + 2 > maxEnd) break;
           const length = (data[pos] << 8) | data[pos + 1];
+          if (length < 2) {
+            pos += 2;
+            continue;
+          }
           pos += length;
         }
         
-        // Fallback: search for FF D9 from the end (for malformed JPEGs)
-        // This helps with larger images where the proper end might be further
-        for (let i = data.length - 2; i > startPos + 100; i--) {
+        // Fallback: search for the last FF D9 before the next JPEG or maxEnd
+        const searchEnd = Math.min(maxEnd, nextJpegStart);
+        for (let i = searchEnd - 2; i > startPos + 100; i--) {
           if (data[i] === 0xFF && data[i + 1] === 0xD9) {
             return i + 2;
           }
@@ -856,7 +891,8 @@ const PhotoReportBuilder = () => {
       };
       
       // Search for JPG images
-      for (let i = 0; i < uint8Array.length - 3; i++) {
+      let i = 0;
+      while (i < uint8Array.length - 3) {
         if (uint8Array[i] === 0xFF && uint8Array[i + 1] === 0xD8 && uint8Array[i + 2] === 0xFF) {
           // Found JPG start - use proper JPEG parsing to find the end
           const end = findJpegEnd(uint8Array, i);
@@ -865,18 +901,23 @@ const PhotoReportBuilder = () => {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/jpeg' });
             images.push({ blob, type: 'jpeg', size: blob.size, start: i, end: end });
+            // Skip past this image to find the next one
+            i = end;
+            continue;
           }
         }
+        i++;
       }
       
       // Search for PNG images
-      for (let i = 0; i < uint8Array.length - 8; i++) {
+      i = 0;
+      while (i < uint8Array.length - 8) {
         if (uint8Array[i] === 0x89 && uint8Array[i + 1] === 0x50 && 
             uint8Array[i + 2] === 0x4E && uint8Array[i + 3] === 0x47) {
           // Found PNG start
           let end = i + 8;
           // Look for PNG end marker (IEND chunk)
-          while (end < uint8Array.length - 12) {
+          while (end < uint8Array.length - 4) {
             if (uint8Array[end] === 0x49 && uint8Array[end + 1] === 0x45 && 
                 uint8Array[end + 2] === 0x4E && uint8Array[end + 3] === 0x44) {
               end += 12; // Include IEND chunk and CRC
@@ -884,12 +925,16 @@ const PhotoReportBuilder = () => {
             }
             end++;
           }
-          if (end < uint8Array.length) {
+          if (end <= uint8Array.length && end > i + 8) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/png' });
             images.push({ blob, type: 'png', size: blob.size, start: i, end: end });
+            // Skip past this image
+            i = end;
+            continue;
           }
         }
+        i++;
       }
       
       if (images.length === 0) {
@@ -897,26 +942,23 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // Filter out overlapping images - keep only the largest when images overlap
-      // This handles cases where a thumbnail is embedded within or near the full image
+      // Filter out truly overlapping images (one image contained within another's byte range)
+      // This handles cases where we find the same JPEG start multiple times
       const nonOverlappingImages = [];
       const sortedByStart = [...images].sort((a, b) => a.start - b.start);
       
       for (const img of sortedByStart) {
-        // Check if this image overlaps with any already-kept image
-        const overlapsWithBetter = nonOverlappingImages.some(existing => {
-          // Check for overlap
-          const overlaps = (img.start < existing.end && img.end > existing.start);
-          // If they overlap, keep the larger one (more likely to be the full image)
-          return overlaps && existing.size >= img.size;
+        // Only filter if one image is completely contained within another
+        const isContainedInLarger = nonOverlappingImages.some(existing => {
+          // Check if this image is completely inside an existing one
+          return img.start >= existing.start && img.end <= existing.end && img.size < existing.size;
         });
         
-        if (!overlapsWithBetter) {
-          // Remove any smaller overlapping images we already added
+        if (!isContainedInLarger) {
+          // Remove any smaller images that are completely contained within this one
           for (let i = nonOverlappingImages.length - 1; i >= 0; i--) {
             const existing = nonOverlappingImages[i];
-            const overlaps = (img.start < existing.end && img.end > existing.start);
-            if (overlaps && img.size > existing.size) {
+            if (existing.start >= img.start && existing.end <= img.end && existing.size < img.size) {
               nonOverlappingImages.splice(i, 1);
             }
           }
@@ -924,21 +966,16 @@ const PhotoReportBuilder = () => {
         }
       }
       
-      // Filter and deduplicate images
-      // 1. Filter out very small images (likely thumbnails or icons) - keep only images > 50KB
-      // Increased threshold to better filter out low-quality embedded images
-      const filteredImages = nonOverlappingImages.filter(img => img.size > 50000);
+      // Filter out very small images (likely icons) - use lower threshold to not miss legitimate photos
+      // 10KB minimum to filter out tiny icons but keep smaller photos
+      const filteredImages = nonOverlappingImages.filter(img => img.size > 10000);
       
       if (filteredImages.length === 0) {
         alert('No valid images found in the .msg file (all images were too small)');
         return;
       }
       
-      // 2. Advanced deduplication - group similar images and keep only the highest quality
-      // Sort by size (largest first) to prioritize higher quality images
-      filteredImages.sort((a, b) => b.size - a.size);
-      
-      // 3. Validate images and extract dimensions for better deduplication
+      // Validate all images and extract their properties
       const validatedImages = [];
       for (const img of filteredImages) {
         try {
@@ -953,53 +990,49 @@ const PhotoReportBuilder = () => {
           const imageInfo = await new Promise((resolve) => {
             const testImg = new Image();
             testImg.onload = () => {
-              // Check if image has valid dimensions (not 0x0) and is not grayscale
               if (testImg.width > 0 && testImg.height > 0) {
-                // Check if image is likely grayscale by sampling pixels
+                // Check if image is grayscale by sampling pixels
                 const canvas = document.createElement('canvas');
-                canvas.width = Math.min(testImg.width, 100);
-                canvas.height = Math.min(testImg.height, 100);
-                const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
-                ctx.drawImage(testImg, 0, 0, canvas.width, canvas.height);
+                const sampleWidth = Math.min(testImg.width, 50);
+                const sampleHeight = Math.min(testImg.height, 50);
+                canvas.width = sampleWidth;
+                canvas.height = sampleHeight;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(testImg, 0, 0, sampleWidth, sampleHeight);
                 
+                let isGrayscale = false;
                 try {
-                  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                  const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
                   const data = imageData.data;
-                  let colorDiff = 0;
-                  const totalPixels = data.length / 4;
-                  const step = Math.max(1, Math.floor(totalPixels / 500)); // Sample ~500 pixels
-                  let sampledCount = 0;
+                  let colorPixels = 0;
+                  const totalPixels = sampleWidth * sampleHeight;
                   
-                  // Sample pixels to check if image is grayscale
-                  for (let p = 0; p < totalPixels; p += step) {
+                  // Count pixels that have significant color difference
+                  for (let p = 0; p < totalPixels; p++) {
                     const i = p * 4;
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
-                    colorDiff += Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-                    sampledCount++;
+                    // A pixel is "colored" if R, G, B differ significantly
+                    const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
+                    if (maxDiff > 15) {
+                      colorPixels++;
+                    }
                   }
                   
-                  const avgColorDiff = sampledCount > 0 ? colorDiff / sampledCount : 0;
-                  const isGrayscale = avgColorDiff < 10; // Threshold for grayscale detection
-                  
-                  resolve({
-                    valid: true,
-                    width: testImg.width,
-                    height: testImg.height,
-                    isGrayscale,
-                    aspectRatio: testImg.width / testImg.height
-                  });
+                  // Image is grayscale if less than 5% of pixels have color
+                  isGrayscale = (colorPixels / totalPixels) < 0.05;
                 } catch (e) {
-                  // If we can't check pixels (CORS, etc), assume it's valid
-                  resolve({
-                    valid: true,
-                    width: testImg.width,
-                    height: testImg.height,
-                    isGrayscale: false,
-                    aspectRatio: testImg.width / testImg.height
-                  });
+                  isGrayscale = false;
                 }
+                
+                resolve({
+                  valid: true,
+                  width: testImg.width,
+                  height: testImg.height,
+                  isGrayscale,
+                  aspectRatio: testImg.width / testImg.height
+                });
               } else {
                 resolve({ valid: false });
               }
@@ -1021,54 +1054,48 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // 4. Remove duplicates based on dimensions and quality
-      // Group images by similar aspect ratio and dimensions
-      const uniqueImages = [];
-      const aspectRatioTolerance = 0.05; // 5% tolerance for aspect ratio matching
+      // Group images by similar dimensions to find color/grayscale pairs
+      // Two images are considered "the same" if dimensions match within 5%
+      const imageGroups = [];
       
       for (const img of validatedImages) {
-        // Check if we already have a similar image
-        const isDuplicate = uniqueImages.some(existing => {
-          // Check if aspect ratios are similar
-          const aspectRatioDiff = Math.abs(existing.aspectRatio - img.aspectRatio);
-          const isSimilarAspectRatio = aspectRatioDiff < aspectRatioTolerance;
-          
-          // Check if dimensions are similar (within 20% or exact match)
-          const widthRatio = Math.min(existing.width, img.width) / Math.max(existing.width, img.width);
-          const heightRatio = Math.min(existing.height, img.height) / Math.max(existing.height, img.height);
-          const isSimilarSize = widthRatio > 0.8 && heightRatio > 0.8;
-          
-          return isSimilarAspectRatio && isSimilarSize;
-        });
+        let addedToGroup = false;
         
-        // Skip grayscale images if we already have a color version
-        const hasColorVersion = uniqueImages.some(existing => 
-          !existing.isGrayscale && 
-          Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
-        );
-        
-        if (!isDuplicate && !(img.isGrayscale && hasColorVersion)) {
-          // Prefer non-grayscale images
-          if (img.isGrayscale) {
-            // Only add grayscale if no color version exists
-            const colorIndex = uniqueImages.findIndex(existing => 
-              !existing.isGrayscale && 
-              Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
-            );
-            if (colorIndex === -1) {
-              uniqueImages.push(img);
-            }
-          } else {
-            // Remove any grayscale version if this is a color version
-            const grayscaleIndex = uniqueImages.findIndex(existing => 
-              existing.isGrayscale && 
-              Math.abs(existing.aspectRatio - img.aspectRatio) < aspectRatioTolerance
-            );
-            if (grayscaleIndex !== -1) {
-              uniqueImages.splice(grayscaleIndex, 1);
-            }
-            uniqueImages.push(img);
+        for (const group of imageGroups) {
+          const ref = group[0];
+          // Check if dimensions are very similar (within 5%)
+          const widthRatio = Math.min(ref.width, img.width) / Math.max(ref.width, img.width);
+          const heightRatio = Math.min(ref.height, img.height) / Math.max(ref.height, img.height);
+          
+          if (widthRatio > 0.95 && heightRatio > 0.95) {
+            group.push(img);
+            addedToGroup = true;
+            break;
           }
+        }
+        
+        if (!addedToGroup) {
+          imageGroups.push([img]);
+        }
+      }
+      
+      // For each group, keep only the best version (prefer color over grayscale, then larger file size)
+      const uniqueImages = [];
+      
+      for (const group of imageGroups) {
+        if (group.length === 1) {
+          uniqueImages.push(group[0]);
+        } else {
+          // Sort: color images first, then by file size (largest first)
+          group.sort((a, b) => {
+            // Prefer color over grayscale
+            if (a.isGrayscale !== b.isGrayscale) {
+              return a.isGrayscale ? 1 : -1;
+            }
+            // Then prefer larger file size (higher quality)
+            return b.size - a.size;
+          });
+          uniqueImages.push(group[0]);
         }
       }
       
