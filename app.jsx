@@ -122,7 +122,22 @@ const InspectionBuilder = () => {
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
-  const [hasSavedContent, setHasSavedContent] = useState(false);
+
+  // Helper function to check if current state has meaningful changes from initial state
+  const hasModifications = () => {
+    // Check if fields differ from initial values
+    const fieldsChanged = JSON.stringify(fields) !== JSON.stringify(initialFields);
+    
+    // Check if participants differ from initial (more than just "Insured")
+    const participantsChanged = 
+      participants.length !== 1 || 
+      participants[0].name !== 'Insured';
+    
+    // Check if there are any custom sections
+    const hasCustomSections = customSections.length > 0;
+    
+    return fieldsChanged || participantsChanged || hasCustomSections;
+  };
 
   // Load saved data from localStorage on mount
   useEffect(() => {
@@ -133,7 +148,6 @@ const InspectionBuilder = () => {
         if (data.fields) setFields(data.fields);
         if (data.participants) setParticipants(data.participants);
         if (data.customSections) setCustomSections(data.customSections);
-        setHasSavedContent(true);
       } catch (error) {
         console.error('Failed to load saved inspection data:', error);
       }
@@ -154,7 +168,6 @@ const InspectionBuilder = () => {
     
     try {
       localStorage.setItem('fieldnote_inspection_data', JSON.stringify(dataToSave));
-      setHasSavedContent(true);
     } catch (error) {
       console.error('Failed to save inspection data:', error);
     }
@@ -302,7 +315,6 @@ const InspectionBuilder = () => {
       
       // Clear localStorage
       localStorage.removeItem('fieldnote_inspection_data');
-      setHasSavedContent(false);
     }
   };
 
@@ -473,7 +485,7 @@ const InspectionBuilder = () => {
   return (
     <div>
       {/* Clear Inspection Button at Top - Only show if there's saved content */}
-      {hasSavedContent && (
+      {hasModifications() && (
         <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <button 
             className="clear-inspection-btn" 
@@ -515,7 +527,7 @@ const InspectionBuilder = () => {
       })}
       
       {/* Clear Inspection Button at Bottom - Only show if there's saved content */}
-      {hasSavedContent && (
+      {hasModifications() && (
         <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
           <button 
             className="clear-inspection-btn" 
