@@ -764,160 +764,55 @@ const PhotoReportBuilder = () => {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       
-      // Simple approach: look for embedded image signatures
-      // JPG signature: FF D8 FF
-      // PNG signature: 89 50 4E 47
+      // Minimum dimensions to filter out thumbnails and icons
+      // Photos should be at least 400px on each dimension
+      const MIN_DIMENSION = 400;
       
-      const images = [];
+      const rawImages = [];
       
-      // Helper function to find the next JPEG start after a position
-      const findNextJpegStart = (data, afterPos) => {
-        for (let i = afterPos; i < data.length - 2; i++) {
-          if (data[i] === 0xFF && data[i + 1] === 0xD8 && data[i + 2] === 0xFF) {
-            return i;
-          }
-        }
-        return data.length;
-      };
-      
-      // Helper function to find the correct JPEG end marker
-      // JPEG structure: SOI (FF D8) -> segments -> SOS (FF DA) -> scan data -> EOI (FF D9)
-      const findJpegEnd = (data, startPos) => {
-        // Find where the next JPEG would start (as a boundary)
-        const nextJpegStart = findNextJpegStart(data, startPos + 3);
-        const maxEnd = Math.min(nextJpegStart, startPos + 50 * 1024 * 1024); // Max 50MB per image
-        
-        let pos = startPos + 2; // Skip SOI marker (FF D8)
-        
-        // Parse through JPEG segments to find SOS (Start of Scan)
-        while (pos < maxEnd - 1) {
-          // Look for marker
-          if (data[pos] !== 0xFF) {
-            pos++;
-            continue;
-          }
-          
-          // Skip padding FF bytes
-          while (pos < maxEnd && data[pos] === 0xFF) {
-            pos++;
-          }
-          
-          if (pos >= maxEnd) break;
-          
-          const marker = data[pos];
-          pos++;
-          
-          // EOI marker
-          if (marker === 0xD9) {
-            return pos;
-          }
-          
-          // SOS marker - start of scan data
-          if (marker === 0xDA) {
-            // Skip the SOS header
-            if (pos + 2 > maxEnd) break;
-            const segmentLength = (data[pos] << 8) | data[pos + 1];
-            pos += segmentLength;
-            
-            // Now search for EOI (FF D9) in the entropy-coded data
-            while (pos < maxEnd - 1) {
-              if (data[pos] === 0xFF) {
-                const next = data[pos + 1];
-                // EOI marker - end of image
-                if (next === 0xD9) {
-                  return pos + 2;
-                }
-                // Stuffed byte (FF 00) - skip
-                if (next === 0x00) {
-                  pos += 2;
-                  continue;
-                }
-                // Restart markers (FF D0-D7) - skip
-                if (next >= 0xD0 && next <= 0xD7) {
-                  pos += 2;
-                  continue;
-                }
-                // Another SOS or DNL marker - could be multi-scan JPEG
-                if (next === 0xDA || next === 0xDC) {
-                  pos += 2;
-                  if (pos + 2 <= maxEnd) {
-                    const len = (data[pos] << 8) | data[pos + 1];
-                    pos += len;
-                  }
-                  continue;
-                }
-              }
-              pos++;
-            }
-            break;
-          }
-          
-          // RST markers (D0-D7) - no length field
-          if (marker >= 0xD0 && marker <= 0xD7) {
-            continue;
-          }
-          
-          // SOI marker (D8) - nested image, stop here
-          if (marker === 0xD8) {
-            // We hit another image start - return what we have so far
-            // Go back and find the last EOI before this point
-            for (let j = pos - 1; j > startPos + 10; j--) {
-              if (data[j - 1] === 0xFF && data[j] === 0xD9) {
-                return j + 1;
-              }
-            }
-            return -1;
-          }
-          
-          // For all other markers, read the length and skip
-          if (pos + 2 > maxEnd) break;
-          const length = (data[pos] << 8) | data[pos + 1];
-          if (length < 2) {
-            pos += 2;
-            continue;
-          }
-          pos += length;
-        }
-        
-        // Fallback: search for the last FF D9 before the next JPEG or maxEnd
-        const searchEnd = Math.min(maxEnd, nextJpegStart);
-        for (let i = searchEnd - 2; i > startPos + 100; i--) {
-          if (data[i] === 0xFF && data[i + 1] === 0xD9) {
-            return i + 2;
-          }
-        }
-        
-        return -1; // Not found
-      };
-      
-      // Search for JPG images
-      let i = 0;
-      while (i < uint8Array.length - 3) {
+      // Find all JPEG start positions first
+      const jpegStarts = [];
+      for (let i = 0; i < uint8Array.length - 2; i++) {
         if (uint8Array[i] === 0xFF && uint8Array[i + 1] === 0xD8 && uint8Array[i + 2] === 0xFF) {
-          // Found JPG start - use proper JPEG parsing to find the end
-          const end = findJpegEnd(uint8Array, i);
-          
-          if (end > i && end <= uint8Array.length) {
-            const imageData = uint8Array.slice(i, end);
-            const blob = new Blob([imageData], { type: 'image/jpeg' });
-            images.push({ blob, type: 'jpeg', size: blob.size, start: i, end: end });
-            // Skip past this image to find the next one
-            i = end;
-            continue;
-          }
+          jpegStarts.push(i);
         }
-        i++;
+      }
+      
+      // Find all JPEG EOI markers (FF D9)
+      const jpegEnds = [];
+      for (let i = 0; i < uint8Array.length - 1; i++) {
+        if (uint8Array[i] === 0xFF && uint8Array[i + 1] === 0xD9) {
+          jpegEnds.push(i + 2); // Position after the EOI marker
+        }
+      }
+      
+      // For each JPEG start, find the best matching end
+      // Strategy: The correct end is the LAST EOI marker before the next JPEG start (or file end)
+      for (let startIdx = 0; startIdx < jpegStarts.length; startIdx++) {
+        const start = jpegStarts[startIdx];
+        const nextStart = startIdx + 1 < jpegStarts.length ? jpegStarts[startIdx + 1] : uint8Array.length;
+        
+        // Find all EOI markers between this start and the next start
+        const validEnds = jpegEnds.filter(end => end > start + 100 && end <= nextStart);
+        
+        if (validEnds.length > 0) {
+          // Use the LAST valid EOI as the end (this captures the full image, not truncated)
+          const end = validEnds[validEnds.length - 1];
+          const imageData = uint8Array.slice(start, end);
+          const blob = new Blob([imageData], { type: 'image/jpeg' });
+          rawImages.push({ blob, type: 'jpeg', size: blob.size, start, end });
+        }
       }
       
       // Search for PNG images
-      i = 0;
+      let i = 0;
       while (i < uint8Array.length - 8) {
         if (uint8Array[i] === 0x89 && uint8Array[i + 1] === 0x50 && 
             uint8Array[i + 2] === 0x4E && uint8Array[i + 3] === 0x47) {
           // Found PNG start
           let end = i + 8;
           // Look for PNG end marker (IEND chunk)
-          while (end < uint8Array.length - 4) {
+          while (end < uint8Array.length - 7) {
             if (uint8Array[end] === 0x49 && uint8Array[end + 1] === 0x45 && 
                 uint8Array[end + 2] === 0x4E && uint8Array[end + 3] === 0x44) {
               end += 12; // Include IEND chunk and CRC
@@ -928,8 +823,7 @@ const PhotoReportBuilder = () => {
           if (end <= uint8Array.length && end > i + 8) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/png' });
-            images.push({ blob, type: 'png', size: blob.size, start: i, end: end });
-            // Skip past this image
+            rawImages.push({ blob, type: 'png', size: blob.size, start: i, end });
             i = end;
             continue;
           }
@@ -937,47 +831,15 @@ const PhotoReportBuilder = () => {
         i++;
       }
       
-      if (images.length === 0) {
+      if (rawImages.length === 0) {
         alert('No images found in the .msg file');
         return;
       }
       
-      // Filter out truly overlapping images (one image contained within another's byte range)
-      // This handles cases where we find the same JPEG start multiple times
-      const nonOverlappingImages = [];
-      const sortedByStart = [...images].sort((a, b) => a.start - b.start);
-      
-      for (const img of sortedByStart) {
-        // Only filter if one image is completely contained within another
-        const isContainedInLarger = nonOverlappingImages.some(existing => {
-          // Check if this image is completely inside an existing one
-          return img.start >= existing.start && img.end <= existing.end && img.size < existing.size;
-        });
-        
-        if (!isContainedInLarger) {
-          // Remove any smaller images that are completely contained within this one
-          for (let i = nonOverlappingImages.length - 1; i >= 0; i--) {
-            const existing = nonOverlappingImages[i];
-            if (existing.start >= img.start && existing.end <= img.end && existing.size < img.size) {
-              nonOverlappingImages.splice(i, 1);
-            }
-          }
-          nonOverlappingImages.push(img);
-        }
-      }
-      
-      // Filter out very small images (likely icons) - use lower threshold to not miss legitimate photos
-      // 10KB minimum to filter out tiny icons but keep smaller photos
-      const filteredImages = nonOverlappingImages.filter(img => img.size > 10000);
-      
-      if (filteredImages.length === 0) {
-        alert('No valid images found in the .msg file (all images were too small)');
-        return;
-      }
-      
-      // Validate all images and extract their properties
+      // Validate all images by actually loading them and getting their properties
       const validatedImages = [];
-      for (const img of filteredImages) {
+      
+      for (const img of rawImages) {
         try {
           const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -986,15 +848,16 @@ const PhotoReportBuilder = () => {
             reader.readAsDataURL(img.blob);
           });
           
-          // Try to load the image to ensure it's valid and get dimensions
+          // Load the image to validate and get dimensions
           const imageInfo = await new Promise((resolve) => {
             const testImg = new Image();
             testImg.onload = () => {
               if (testImg.width > 0 && testImg.height > 0) {
                 // Check if image is grayscale by sampling pixels
                 const canvas = document.createElement('canvas');
-                const sampleWidth = Math.min(testImg.width, 50);
-                const sampleHeight = Math.min(testImg.height, 50);
+                const sampleSize = 100;
+                const sampleWidth = Math.min(testImg.width, sampleSize);
+                const sampleHeight = Math.min(testImg.height, sampleSize);
                 canvas.width = sampleWidth;
                 canvas.height = sampleHeight;
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -1009,10 +872,10 @@ const PhotoReportBuilder = () => {
                   
                   // Count pixels that have significant color difference
                   for (let p = 0; p < totalPixels; p++) {
-                    const i = p * 4;
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
+                    const idx = p * 4;
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
                     // A pixel is "colored" if R, G, B differ significantly
                     const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
                     if (maxDiff > 15) {
@@ -1031,7 +894,7 @@ const PhotoReportBuilder = () => {
                   width: testImg.width,
                   height: testImg.height,
                   isGrayscale,
-                  aspectRatio: testImg.width / testImg.height
+                  pixelCount: testImg.width * testImg.height
                 });
               } else {
                 resolve({ valid: false });
@@ -1054,60 +917,67 @@ const PhotoReportBuilder = () => {
         return;
       }
       
-      // Group images by similar dimensions to find color/grayscale pairs
-      // Two images are considered "the same" if dimensions match within 5%
-      const imageGroups = [];
+      // Filter out thumbnails and small icons based on dimensions
+      // Keep images where BOTH dimensions are at least MIN_DIMENSION
+      const fullSizeImages = validatedImages.filter(img => 
+        img.width >= MIN_DIMENSION && img.height >= MIN_DIMENSION
+      );
       
-      for (const img of validatedImages) {
-        let addedToGroup = false;
-        
-        for (const group of imageGroups) {
-          const ref = group[0];
-          // Check if dimensions are very similar (within 5%)
-          const widthRatio = Math.min(ref.width, img.width) / Math.max(ref.width, img.width);
-          const heightRatio = Math.min(ref.height, img.height) / Math.max(ref.height, img.height);
-          
-          if (widthRatio > 0.95 && heightRatio > 0.95) {
-            group.push(img);
-            addedToGroup = true;
-            break;
-          }
-        }
-        
-        if (!addedToGroup) {
-          imageGroups.push([img]);
-        }
+      // If all images were filtered out (maybe small photos?), fall back to file size filtering
+      const imagesToProcess = fullSizeImages.length > 0 
+        ? fullSizeImages 
+        : validatedImages.filter(img => img.size > 50000); // 50KB minimum as fallback
+      
+      if (imagesToProcess.length === 0) {
+        alert('No suitable photos found in the .msg file (all images appear to be thumbnails or icons)');
+        return;
       }
       
-      // For each group, keep only the best version (prefer color over grayscale, then larger file size)
+      // Group images by EXACT dimensions to find color/grayscale duplicates
+      // MSG files typically have exact dimension matches for duplicates
+      const imageGroups = new Map();
+      
+      for (const img of imagesToProcess) {
+        const key = `${img.width}x${img.height}`;
+        if (!imageGroups.has(key)) {
+          imageGroups.set(key, []);
+        }
+        imageGroups.get(key).push(img);
+      }
+      
+      // For each group of same-dimension images, keep the best one
       const uniqueImages = [];
       
-      for (const group of imageGroups) {
+      for (const group of imageGroups.values()) {
         if (group.length === 1) {
           uniqueImages.push(group[0]);
         } else {
-          // Sort: color images first, then by file size (largest first)
+          // Multiple images with same dimensions - likely color and grayscale versions
+          // Sort: color images first, then by file size (larger = higher quality)
           group.sort((a, b) => {
             // Prefer color over grayscale
             if (a.isGrayscale !== b.isGrayscale) {
               return a.isGrayscale ? 1 : -1;
             }
-            // Then prefer larger file size (higher quality)
+            // Then prefer larger file size
             return b.size - a.size;
           });
           uniqueImages.push(group[0]);
         }
       }
       
-      // Add validated and deduplicated images to photos with orientation correction
+      // Sort images by their position in the file to maintain original order
+      uniqueImages.sort((a, b) => a.start - b.start);
+      
+      // Add deduplicated images to photos with orientation correction
       for (let index = 0; index < uniqueImages.length; index++) {
         const img = uniqueImages[index];
         let correctedDataUrl = img.dataUrl;
         
         // Check for EXIF orientation and correct if needed
         try {
-          const arrayBuffer = await img.blob.arrayBuffer();
-          const orientation = getOrientationFromExif(arrayBuffer);
+          const imgArrayBuffer = await img.blob.arrayBuffer();
+          const orientation = getOrientationFromExif(imgArrayBuffer);
           if (orientation !== 1) {
             correctedDataUrl = await correctImageOrientation(img.dataUrl, orientation);
           }
@@ -1115,16 +985,18 @@ const PhotoReportBuilder = () => {
           console.log('Could not read EXIF orientation for extracted image, using as-is:', error);
         }
         
-        const file = new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` });
+        const photoFile = new File([img.blob], `extracted_${index}.${img.type}`, { type: `image/${img.type}` });
         const newPhoto = {
           id: Date.now() + Math.random() + index,
           src: correctedDataUrl,
           caption: '',
           rotation: 0,
-          file
+          file: photoFile
         };
         setPhotos(prev => [...prev, newPhoto]);
       }
+      
+      console.log(`MSG extraction complete: Found ${rawImages.length} raw images, ${validatedImages.length} valid, ${fullSizeImages.length} full-size, ${uniqueImages.length} unique`);
       
     } catch (error) {
       console.error('Error processing .msg file:', error);
