@@ -770,23 +770,101 @@ const PhotoReportBuilder = () => {
       
       const images = [];
       
+      // Helper function to find the correct JPEG end marker
+      // JPEG structure: SOI (FF D8) -> segments -> SOS (FF DA) -> scan data -> EOI (FF D9)
+      // The issue is that .msg files can have multiple JPEGs (thumbnails + full images)
+      // We need to find the SOS marker first, then look for EOI after it
+      const findJpegEnd = (data, startPos) => {
+        let pos = startPos + 2; // Skip SOI marker (FF D8)
+        
+        // Parse through JPEG segments to find SOS (Start of Scan)
+        while (pos < data.length - 1) {
+          // Look for marker
+          if (data[pos] !== 0xFF) {
+            pos++;
+            continue;
+          }
+          
+          // Skip padding FF bytes
+          while (pos < data.length && data[pos] === 0xFF) {
+            pos++;
+          }
+          
+          if (pos >= data.length) break;
+          
+          const marker = data[pos];
+          pos++;
+          
+          // EOI marker (shouldn't happen before SOS, but handle it)
+          if (marker === 0xD9) {
+            return pos;
+          }
+          
+          // SOS marker - start of scan data
+          if (marker === 0xDA) {
+            // Skip the SOS header
+            if (pos + 2 > data.length) break;
+            const segmentLength = (data[pos] << 8) | data[pos + 1];
+            pos += segmentLength;
+            
+            // Now search for EOI (FF D9) in the entropy-coded data
+            // In entropy-coded data, FF bytes are stuffed with 00, so FF D9 is unambiguous
+            while (pos < data.length - 1) {
+              if (data[pos] === 0xFF && data[pos + 1] === 0xD9) {
+                return pos + 2; // Include the EOI marker
+              }
+              // Skip stuffed bytes (FF 00)
+              if (data[pos] === 0xFF && data[pos + 1] === 0x00) {
+                pos += 2;
+                continue;
+              }
+              // Handle restart markers (FF D0-D7)
+              if (data[pos] === 0xFF && data[pos + 1] >= 0xD0 && data[pos + 1] <= 0xD7) {
+                pos += 2;
+                continue;
+              }
+              pos++;
+            }
+            break;
+          }
+          
+          // RST markers (D0-D7) - no length field
+          if (marker >= 0xD0 && marker <= 0xD7) {
+            continue;
+          }
+          
+          // SOI marker (D8) - shouldn't happen inside, might be nested image
+          if (marker === 0xD8) {
+            continue;
+          }
+          
+          // For all other markers, read the length and skip
+          if (pos + 2 > data.length) break;
+          const length = (data[pos] << 8) | data[pos + 1];
+          pos += length;
+        }
+        
+        // Fallback: search for FF D9 from the end (for malformed JPEGs)
+        // This helps with larger images where the proper end might be further
+        for (let i = data.length - 2; i > startPos + 100; i--) {
+          if (data[i] === 0xFF && data[i + 1] === 0xD9) {
+            return i + 2;
+          }
+        }
+        
+        return -1; // Not found
+      };
+      
       // Search for JPG images
       for (let i = 0; i < uint8Array.length - 3; i++) {
         if (uint8Array[i] === 0xFF && uint8Array[i + 1] === 0xD8 && uint8Array[i + 2] === 0xFF) {
-          // Found JPG start
-          let end = i + 3;
-          // Look for JPG end marker (FF D9)
-          while (end < uint8Array.length - 1) {
-            if (uint8Array[end] === 0xFF && uint8Array[end + 1] === 0xD9) {
-              end += 2;
-              break;
-            }
-            end++;
-          }
-          if (end < uint8Array.length) {
+          // Found JPG start - use proper JPEG parsing to find the end
+          const end = findJpegEnd(uint8Array, i);
+          
+          if (end > i && end <= uint8Array.length) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/jpeg' });
-            images.push({ blob, type: 'jpeg', size: blob.size, start: i });
+            images.push({ blob, type: 'jpeg', size: blob.size, start: i, end: end });
           }
         }
       }
@@ -809,7 +887,7 @@ const PhotoReportBuilder = () => {
           if (end < uint8Array.length) {
             const imageData = uint8Array.slice(i, end);
             const blob = new Blob([imageData], { type: 'image/png' });
-            images.push({ blob, type: 'png', size: blob.size, start: i });
+            images.push({ blob, type: 'png', size: blob.size, start: i, end: end });
           }
         }
       }
@@ -819,10 +897,37 @@ const PhotoReportBuilder = () => {
         return;
       }
       
+      // Filter out overlapping images - keep only the largest when images overlap
+      // This handles cases where a thumbnail is embedded within or near the full image
+      const nonOverlappingImages = [];
+      const sortedByStart = [...images].sort((a, b) => a.start - b.start);
+      
+      for (const img of sortedByStart) {
+        // Check if this image overlaps with any already-kept image
+        const overlapsWithBetter = nonOverlappingImages.some(existing => {
+          // Check for overlap
+          const overlaps = (img.start < existing.end && img.end > existing.start);
+          // If they overlap, keep the larger one (more likely to be the full image)
+          return overlaps && existing.size >= img.size;
+        });
+        
+        if (!overlapsWithBetter) {
+          // Remove any smaller overlapping images we already added
+          for (let i = nonOverlappingImages.length - 1; i >= 0; i--) {
+            const existing = nonOverlappingImages[i];
+            const overlaps = (img.start < existing.end && img.end > existing.start);
+            if (overlaps && img.size > existing.size) {
+              nonOverlappingImages.splice(i, 1);
+            }
+          }
+          nonOverlappingImages.push(img);
+        }
+      }
+      
       // Filter and deduplicate images
       // 1. Filter out very small images (likely thumbnails or icons) - keep only images > 50KB
       // Increased threshold to better filter out low-quality embedded images
-      const filteredImages = images.filter(img => img.size > 50000);
+      const filteredImages = nonOverlappingImages.filter(img => img.size > 50000);
       
       if (filteredImages.length === 0) {
         alert('No valid images found in the .msg file (all images were too small)');
@@ -861,18 +966,22 @@ const PhotoReportBuilder = () => {
                   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                   const data = imageData.data;
                   let colorDiff = 0;
-                  const sampleSize = Math.min(1000, data.length / 4);
+                  const totalPixels = data.length / 4;
+                  const step = Math.max(1, Math.floor(totalPixels / 500)); // Sample ~500 pixels
+                  let sampledCount = 0;
                   
                   // Sample pixels to check if image is grayscale
-                  for (let i = 0; i < sampleSize * 4; i += 40) {
+                  for (let p = 0; p < totalPixels; p += step) {
+                    const i = p * 4;
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
                     colorDiff += Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
+                    sampledCount++;
                   }
                   
-                  const avgColorDiff = colorDiff / sampleSize;
-                  const isGrayscale = avgColorDiff < 5; // Threshold for grayscale detection - lower value means stricter
+                  const avgColorDiff = sampledCount > 0 ? colorDiff / sampledCount : 0;
+                  const isGrayscale = avgColorDiff < 10; // Threshold for grayscale detection
                   
                   resolve({
                     valid: true,
