@@ -122,6 +122,7 @@ const InspectionBuilder = () => {
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+  const [hasSavedContent, setHasSavedContent] = useState(false);
 
   // Load saved data from localStorage on mount
   useEffect(() => {
@@ -132,6 +133,7 @@ const InspectionBuilder = () => {
         if (data.fields) setFields(data.fields);
         if (data.participants) setParticipants(data.participants);
         if (data.customSections) setCustomSections(data.customSections);
+        setHasSavedContent(true);
       } catch (error) {
         console.error('Failed to load saved inspection data:', error);
       }
@@ -152,6 +154,7 @@ const InspectionBuilder = () => {
     
     try {
       localStorage.setItem('fieldnote_inspection_data', JSON.stringify(dataToSave));
+      setHasSavedContent(true);
     } catch (error) {
       console.error('Failed to save inspection data:', error);
     }
@@ -299,6 +302,7 @@ const InspectionBuilder = () => {
       
       // Clear localStorage
       localStorage.removeItem('fieldnote_inspection_data');
+      setHasSavedContent(false);
     }
   };
 
@@ -468,21 +472,22 @@ const InspectionBuilder = () => {
 
   return (
     <div>
-      {/* Clear Inspection Button at Top */}
-      <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
-        <button 
-          className="clear-inspection-btn" 
-          onClick={clearInspection}
-          style={{ background: 'var(--danger-color)' }}
-        >
-          Clear Inspection
-        </button>
-      </div>
+      {/* Clear Inspection Button at Top - Only show if there's saved content */}
+      {hasSavedContent && (
+        <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <button 
+            className="clear-inspection-btn" 
+            onClick={clearInspection}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Inspection
+          </button>
+        </div>
+      )}
 
       {mainSectionOrder.map(sectionId => {
         const customSection = customSections.find(s => s.insertAfterId === sectionId);
         const hasCustomSection = !!customSection;
-        const hasContent = hasCustomSection && customSection.content.trim() !== '';
         return (
           <React.Fragment key={sectionId}>
             <div className="section-wrapper">
@@ -490,11 +495,11 @@ const InspectionBuilder = () => {
               {sectionId !== 'finalNote' && (
                 <div className="add-between-container">
                   <button
-                    className={`add-between-btn ${hasContent ? 'minus' : ''}`}
+                    className={`add-between-btn ${hasCustomSection ? 'minus' : ''}`}
                     onClick={() => toggleCustomSection(sectionId)}
-                    aria-label={hasContent ? 'Remove custom note' : 'Add custom note'}
+                    aria-label={hasCustomSection ? 'Remove custom note' : 'Add custom note'}
                   >
-                    {hasContent ? '-' : '+'}
+                    {hasCustomSection ? '-' : '+'}
                   </button>
                 </div>
               )}
@@ -509,16 +514,18 @@ const InspectionBuilder = () => {
         );
       })}
       
-      {/* Clear Inspection Button */}
-      <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
-        <button 
-          className="clear-inspection-btn" 
-          onClick={clearInspection}
-          style={{ background: 'var(--danger-color)' }}
-        >
-          Clear Inspection
-        </button>
-      </div>
+      {/* Clear Inspection Button at Bottom - Only show if there's saved content */}
+      {hasSavedContent && (
+        <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <button 
+            className="clear-inspection-btn" 
+            onClick={clearInspection}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Inspection
+          </button>
+        </div>
+      )}
     </div>
   );
 };
