@@ -258,6 +258,7 @@ const InspectionBuilder = () => {
               if (fields.roofHVAC) note += `\nHVAC: ${fields.roofHVAC}`;
               if (fields.roofTurtleVent) note += `\nTurtle Vent: ${fields.roofTurtleVent}`;
               if (fields.roofPower) note += `\nPower: ${fields.roofPower}`;
+              if (fields.roofSkylight) note += `\nSkylight: ${fields.roofSkylight}`;
               if (fields.roofSatellite) note += `\nSatellite: ${fields.roofSatellite}`;
             }
             
@@ -421,12 +422,12 @@ const InspectionBuilder = () => {
             <label>Drip edge:</label><select value={fields.roofDripEdge || 'no'} onChange={e => handleFieldChange('roofDripEdge', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
             <label>Valley metal:</label><select value={fields.roofValleyMetal || 'no'} onChange={e => handleFieldChange('roofValleyMetal', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
             <label>Ridge vent:</label><select value={fields.roofRidgeVent || 'yes'} onChange={e => handleFieldChange('roofRidgeVent', e.target.value)}><option value="yes">Yes</option><option value="no">No</option></select>
-            <label>Pipe jacks:</label><input type="text" value={fields.roofPipeJacks} onChange={e => handleFieldChange('roofPipeJacks', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>HVAC:</label><input type="text" value={fields.roofHVAC} onChange={e => handleFieldChange('roofHVAC', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>Turtle Vent:</label><input type="text" value={fields.roofTurtleVent} onChange={e => handleFieldChange('roofTurtleVent', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>Power:</label><input type="text" value={fields.roofPower} onChange={e => handleFieldChange('roofPower', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>Skylight:</label><input type="text" value={fields.roofSkylight} onChange={e => handleFieldChange('roofSkylight', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
-            <label>Satellite:</label><input type="text" value={fields.roofSatellite} onChange={e => handleFieldChange('roofSatellite', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Pipe jacks:</label><input type="text" inputMode="numeric" value={fields.roofPipeJacks} onChange={e => handleFieldChange('roofPipeJacks', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>HVAC:</label><input type="text" inputMode="numeric" value={fields.roofHVAC} onChange={e => handleFieldChange('roofHVAC', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Turtle Vent:</label><input type="text" inputMode="numeric" value={fields.roofTurtleVent} onChange={e => handleFieldChange('roofTurtleVent', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Power:</label><input type="text" inputMode="numeric" value={fields.roofPower} onChange={e => handleFieldChange('roofPower', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Skylight:</label><input type="text" inputMode="numeric" value={fields.roofSkylight} onChange={e => handleFieldChange('roofSkylight', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
+            <label>Satellite:</label><input type="text" inputMode="numeric" value={fields.roofSatellite} onChange={e => handleFieldChange('roofSatellite', e.target.value)} placeholder="Optional - leave empty to exclude from note" />
           </div>
         )}
       </div>
