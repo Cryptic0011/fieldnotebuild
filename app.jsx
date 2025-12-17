@@ -96,10 +96,6 @@ const App = () => {
   );
 };
 
-// SECURITY: API key should be managed via environment variables or backend proxy
-// For production, move this to a secure backend endpoint
-const GEMINI_API_KEY = 'AIzaSyDDYvU9wZEb_CNWsvThU2ZvDhlsfVdEtbw'; // TODO: Move to backend
-
 const InspectionBuilder = () => {
   const initialFields = {
     colDetails: '', showCol: false,
@@ -119,8 +115,6 @@ const InspectionBuilder = () => {
   const [customSections, setCustomSections] = useState([]);
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
-  const [isRewriting, setIsRewriting] = useState(false);
-  const [rewriteError, setRewriteError] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
 
   // Helper function to check if current state has meaningful changes from initial state
@@ -312,60 +306,9 @@ const InspectionBuilder = () => {
       setParticipants(initialParticipants);
       setCustomSections([]);
       setGeneratedNote('');
-      setRewriteError('');
-      
+
       // Clear localStorage
       localStorage.removeItem('fieldnote_inspection_data');
-    }
-  };
-
-  const rewriteNoteWithAI = async () => {
-    if (!generatedNote.trim()) return;
-    setRewriteError('');
-    setIsRewriting(true);
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    text: `Please rewrite the following text without editing the headers to read better without changing any acronyms.\n\n${generatedNote}`,
-                  },
-                ],
-              },
-            ],
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Unable to rewrite note.');
-      }
-
-      const data = await response.json();
-      const aiText =
-        data?.candidates?.[0]?.content?.parts
-          ?.map(part => part.text)
-          .join('')
-          .trim() || '';
-
-      if (!aiText) {
-        throw new Error('No rewrite was returned.');
-      }
-
-      setGeneratedNote(aiText);
-    } catch (error) {
-      setRewriteError(error.message || 'Failed to rewrite note.');
-    } finally {
-      setIsRewriting(false);
     }
   };
 
@@ -475,11 +418,7 @@ const InspectionBuilder = () => {
       <div className="note-actions">
         <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
         <button className="copy-btn" onClick={sendEmail}>Send Email</button>
-        <button className="rewrite-btn" onClick={rewriteNoteWithAI} disabled={isRewriting}>
-          {isRewriting ? 'Rewriting…' : 'Rewrite with AI'}
-        </button>
       </div>
-      {rewriteError && <div className="error-text">{rewriteError}</div>}
     </Section>,
   };
 
