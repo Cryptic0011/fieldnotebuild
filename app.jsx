@@ -836,9 +836,43 @@ const PhotoReportBuilder = () => {
         return;
       }
       
+      // Helper function to compute a perceptual hash for duplicate detection
+      const computeImageHash = (canvas, ctx, img) => {
+        // Resize to 16x16 and convert to grayscale for comparison
+        const hashSize = 16;
+        canvas.width = hashSize;
+        canvas.height = hashSize;
+        ctx.drawImage(img, 0, 0, hashSize, hashSize);
+        const imageData = ctx.getImageData(0, 0, hashSize, hashSize);
+        const data = imageData.data;
+
+        // Convert to grayscale values
+        const grayValues = [];
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+          grayValues.push(gray);
+        }
+
+        // Compute average
+        const avg = grayValues.reduce((a, b) => a + b, 0) / grayValues.length;
+
+        // Generate hash: 1 if pixel > average, 0 otherwise
+        return grayValues.map(v => v > avg ? '1' : '0').join('');
+      };
+
+      // Helper function to compute hamming distance between two hashes
+      const hammingDistance = (hash1, hash2) => {
+        if (hash1.length !== hash2.length) return Infinity;
+        let distance = 0;
+        for (let i = 0; i < hash1.length; i++) {
+          if (hash1[i] !== hash2[i]) distance++;
+        }
+        return distance;
+      };
+
       // Validate all images by actually loading them and getting their properties
       const validatedImages = [];
-      
+
       for (const img of rawImages) {
         try {
           const dataUrl = await new Promise((resolve, reject) => {
@@ -847,53 +881,74 @@ const PhotoReportBuilder = () => {
             reader.onerror = reject;
             reader.readAsDataURL(img.blob);
           });
-          
+
           // Load the image to validate and get dimensions
           const imageInfo = await new Promise((resolve) => {
             const testImg = new Image();
             testImg.onload = () => {
               if (testImg.width > 0 && testImg.height > 0) {
-                // Check if image is grayscale by sampling pixels
                 const canvas = document.createElement('canvas');
-                const sampleSize = 100;
-                const sampleWidth = Math.min(testImg.width, sampleSize);
-                const sampleHeight = Math.min(testImg.height, sampleSize);
-                canvas.width = sampleWidth;
-                canvas.height = sampleHeight;
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                ctx.drawImage(testImg, 0, 0, sampleWidth, sampleHeight);
-                
-                let isGrayscale = false;
-                try {
-                  const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
-                  const data = imageData.data;
-                  let colorPixels = 0;
-                  const totalPixels = sampleWidth * sampleHeight;
-                  
-                  // Count pixels that have significant color difference
-                  for (let p = 0; p < totalPixels; p++) {
-                    const idx = p * 4;
-                    const r = data[idx];
-                    const g = data[idx + 1];
-                    const b = data[idx + 2];
-                    // A pixel is "colored" if R, G, B differ significantly
-                    const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
-                    if (maxDiff > 15) {
-                      colorPixels++;
+
+                // Sample multiple regions for better grayscale detection
+                // Sample center, and 4 corners - much more representative
+                const sampleSize = 64;
+                const regions = [
+                  { x: testImg.width / 2 - sampleSize / 2, y: testImg.height / 2 - sampleSize / 2 }, // center
+                  { x: 0, y: 0 }, // top-left
+                  { x: testImg.width - sampleSize, y: 0 }, // top-right
+                  { x: 0, y: testImg.height - sampleSize }, // bottom-left
+                  { x: testImg.width - sampleSize, y: testImg.height - sampleSize }, // bottom-right
+                ];
+
+                canvas.width = sampleSize;
+                canvas.height = sampleSize;
+
+                let totalColorPixels = 0;
+                let totalSampledPixels = 0;
+
+                for (const region of regions) {
+                  const sx = Math.max(0, Math.min(region.x, testImg.width - sampleSize));
+                  const sy = Math.max(0, Math.min(region.y, testImg.height - sampleSize));
+                  const sw = Math.min(sampleSize, testImg.width);
+                  const sh = Math.min(sampleSize, testImg.height);
+
+                  ctx.drawImage(testImg, sx, sy, sw, sh, 0, 0, sw, sh);
+
+                  try {
+                    const imageData = ctx.getImageData(0, 0, sw, sh);
+                    const data = imageData.data;
+                    const pixelCount = sw * sh;
+
+                    for (let p = 0; p < pixelCount; p++) {
+                      const idx = p * 4;
+                      const r = data[idx];
+                      const g = data[idx + 1];
+                      const b = data[idx + 2];
+                      // A pixel is "colored" if R, G, B differ significantly
+                      const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(b - r));
+                      if (maxDiff > 10) { // Slightly lower threshold for better detection
+                        totalColorPixels++;
+                      }
                     }
+                    totalSampledPixels += pixelCount;
+                  } catch (e) {
+                    // Skip this region on error
                   }
-                  
-                  // Image is grayscale if less than 5% of pixels have color
-                  isGrayscale = (colorPixels / totalPixels) < 0.05;
-                } catch (e) {
-                  isGrayscale = false;
                 }
-                
+
+                // Image is grayscale if less than 3% of sampled pixels have color
+                const isGrayscale = totalSampledPixels > 0 ? (totalColorPixels / totalSampledPixels) < 0.03 : false;
+
+                // Compute perceptual hash for duplicate detection
+                const hash = computeImageHash(canvas, ctx, testImg);
+
                 resolve({
                   valid: true,
                   width: testImg.width,
                   height: testImg.height,
                   isGrayscale,
+                  hash,
                   pixelCount: testImg.width * testImg.height
                 });
               } else {
@@ -903,7 +958,7 @@ const PhotoReportBuilder = () => {
             testImg.onerror = () => resolve({ valid: false });
             testImg.src = dataUrl;
           });
-          
+
           if (imageInfo.valid) {
             validatedImages.push({ ...img, dataUrl, ...imageInfo });
           }
@@ -911,58 +966,66 @@ const PhotoReportBuilder = () => {
           console.log('Skipping invalid image:', error);
         }
       }
-      
+
       if (validatedImages.length === 0) {
         alert('No valid images could be extracted from the .msg file');
         return;
       }
-      
+
       // Filter out thumbnails and small icons based on dimensions
       // Keep images where BOTH dimensions are at least MIN_DIMENSION
-      const fullSizeImages = validatedImages.filter(img => 
+      const fullSizeImages = validatedImages.filter(img =>
         img.width >= MIN_DIMENSION && img.height >= MIN_DIMENSION
       );
-      
+
       // If all images were filtered out (maybe small photos?), fall back to file size filtering
-      const imagesToProcess = fullSizeImages.length > 0 
-        ? fullSizeImages 
+      const imagesToProcess = fullSizeImages.length > 0
+        ? fullSizeImages
         : validatedImages.filter(img => img.size > 50000); // 50KB minimum as fallback
-      
+
       if (imagesToProcess.length === 0) {
         alert('No suitable photos found in the .msg file (all images appear to be thumbnails or icons)');
         return;
       }
-      
-      // Group images by EXACT dimensions to find color/grayscale duplicates
-      // MSG files typically have exact dimension matches for duplicates
-      const imageGroups = new Map();
-      
-      for (const img of imagesToProcess) {
-        const key = `${img.width}x${img.height}`;
-        if (!imageGroups.has(key)) {
-          imageGroups.set(key, []);
-        }
-        imageGroups.get(key).push(img);
-      }
-      
-      // For each group of same-dimension images, keep the best one
+
+      // Use perceptual hashing to find TRUE duplicates (same visual content)
+      // This replaces the flawed dimension-based grouping
       const uniqueImages = [];
-      
-      for (const group of imageGroups.values()) {
-        if (group.length === 1) {
-          uniqueImages.push(group[0]);
-        } else {
-          // Multiple images with same dimensions - likely color and grayscale versions
-          // Sort: color images first, then by file size (larger = higher quality)
-          group.sort((a, b) => {
-            // Prefer color over grayscale
-            if (a.isGrayscale !== b.isGrayscale) {
-              return a.isGrayscale ? 1 : -1;
+      const HASH_THRESHOLD = 12; // Allow up to 12 bits difference (out of 256) for duplicates
+
+      for (const img of imagesToProcess) {
+        // Check if this image is a duplicate of one we've already kept
+        let isDuplicate = false;
+        let duplicateIndex = -1;
+
+        for (let i = 0; i < uniqueImages.length; i++) {
+          const existing = uniqueImages[i];
+          // Only compare images with similar dimensions (within 5% tolerance)
+          const widthRatio = img.width / existing.width;
+          const heightRatio = img.height / existing.height;
+          if (widthRatio > 0.95 && widthRatio < 1.05 && heightRatio > 0.95 && heightRatio < 1.05) {
+            const distance = hammingDistance(img.hash, existing.hash);
+            if (distance <= HASH_THRESHOLD) {
+              isDuplicate = true;
+              duplicateIndex = i;
+              break;
             }
-            // Then prefer larger file size
-            return b.size - a.size;
-          });
-          uniqueImages.push(group[0]);
+          }
+        }
+
+        if (isDuplicate) {
+          // This is a duplicate - keep the better version (color over grayscale, then larger size)
+          const existing = uniqueImages[duplicateIndex];
+          const shouldReplace =
+            (existing.isGrayscale && !img.isGrayscale) || // Prefer color
+            (existing.isGrayscale === img.isGrayscale && img.size > existing.size); // Same color status, prefer larger
+
+          if (shouldReplace) {
+            uniqueImages[duplicateIndex] = img;
+          }
+        } else {
+          // Not a duplicate - keep it
+          uniqueImages.push(img);
         }
       }
       
