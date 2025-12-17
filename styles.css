@@ -178,8 +178,6 @@ pre { background-color: #f1f5f9; border: 1px solid var(--border-color); padding:
 .copy-btn { background: #27ae60; }
 .copy-btn:hover { background: #229954; }
 
-.rewrite-btn { background: var(--primary-dark); display: inline-flex; align-items: center; gap: 0.4rem; }
-.rewrite-btn:disabled { opacity: 0.7; cursor: not-allowed; box-shadow: none; transform: none; }
 
 .error-text { margin-top: 0.75rem; color: var(--danger-color); font-weight: 600; }
 
