@@ -116,6 +116,7 @@ const InspectionBuilder = () => {
   const [fields, setFields] = useState(initialFields);
   const [generatedNote, setGeneratedNote] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Helper function to check if current state has meaningful changes from initial state
   const hasModifications = () => {
@@ -287,7 +288,15 @@ const InspectionBuilder = () => {
     setGeneratedNote(note);
   }, [fields, participants, customSections]);
 
-  const copyToClipboard = () => navigator.clipboard.writeText(generatedNote);
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedNote);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  };
 
   const sendEmail = () => {
     const today = new Date();
@@ -416,7 +425,9 @@ const InspectionBuilder = () => {
     finalNote: <Section title="Generated Inspection Note">
       <pre>{generatedNote}</pre>
       <div className="note-actions">
-        <button className="copy-btn" onClick={copyToClipboard}>Copy Note</button>
+        <button className="copy-btn" onClick={copyToClipboard} style={copySuccess ? { background: '#16a34a' } : {}}>
+          {copySuccess ? 'Copied!' : 'Copy Note'}
+        </button>
         <button className="copy-btn" onClick={sendEmail}>Send Email</button>
       </div>
     </Section>,
