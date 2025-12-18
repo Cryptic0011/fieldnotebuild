@@ -492,6 +492,8 @@ const PhotoReportBuilder = () => {
   const [compression, setCompression] = useState('regular');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [pdfFilename, setPdfFilename] = useState('photo-report');
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
   const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
@@ -553,34 +555,40 @@ const PhotoReportBuilder = () => {
   };
 
   const processFiles = async (files) => {
-    for (const file of files) {
-      // Handle .msg files
-      if (file.name.toLowerCase().endsWith('.msg')) {
-        await processMsgFile(file);
-      }
-      // Handle HEIC files
-      else if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
-        await processHeicFile(file);
-      }
-      // Handle regular images
-      else if (file.type.startsWith('image/')) {
-        // Convert to data URL for persistence
-        let dataUrl = await fileToDataUrl(file);
-        
-        // Check for EXIF orientation and correct if needed
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const orientation = getOrientationFromExif(arrayBuffer);
-          if (orientation !== 1) {
-            dataUrl = await correctImageOrientation(dataUrl, orientation);
-          }
-        } catch (error) {
-          console.log('Could not read EXIF orientation, using image as-is:', error);
+    if (files.length === 0) return;
+    setIsProcessingFiles(true);
+    try {
+      for (const file of files) {
+        // Handle .msg files
+        if (file.name.toLowerCase().endsWith('.msg')) {
+          await processMsgFile(file);
         }
-        
-        const newPhoto = { id: Date.now() + Math.random(), src: dataUrl, caption: '', rotation: 0, file };
-        setPhotos(prev => [...prev, newPhoto]);
+        // Handle HEIC files
+        else if (file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+          await processHeicFile(file);
+        }
+        // Handle regular images
+        else if (file.type.startsWith('image/')) {
+          // Convert to data URL for persistence
+          let dataUrl = await fileToDataUrl(file);
+
+          // Check for EXIF orientation and correct if needed
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const orientation = getOrientationFromExif(arrayBuffer);
+            if (orientation !== 1) {
+              dataUrl = await correctImageOrientation(dataUrl, orientation);
+            }
+          } catch (error) {
+            console.log('Could not read EXIF orientation, using image as-is:', error);
+          }
+
+          const newPhoto = { id: Date.now() + Math.random(), src: dataUrl, caption: '', rotation: 0, file };
+          setPhotos(prev => [...prev, newPhoto]);
+        }
       }
+    } finally {
+      setIsProcessingFiles(false);
     }
   };
 
@@ -1253,10 +1261,10 @@ const PhotoReportBuilder = () => {
       }
     }
     
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const filename = `photo-report-${timestamp}.pdf`;
-      
+      // Use custom filename or default with timestamp
+      const sanitizedFilename = pdfFilename.trim() || 'photo-report';
+      const filename = `${sanitizedFilename}.pdf`;
+
       // Save the PDF directly to ensure all photos are saved locally
       doc.save(filename);
     } catch (error) {
@@ -1288,10 +1296,15 @@ const PhotoReportBuilder = () => {
         )}
         
         <input type="file" multiple accept="image/*,.heic,.heif,.msg" onChange={handleFileChange} style={{ display: 'none' }} ref={fileInputRef} />
-        <div id="photo-drop-zone" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onClick={openFilePicker}>
-          {isIOS ? 'Tap to Upload Photos' : 'Drag & drop photos here or click to upload'}
+        <div id="photo-drop-zone" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onClick={isProcessingFiles ? undefined : openFilePicker} style={isProcessingFiles ? { cursor: 'wait', opacity: 0.7 } : {}}>
+          {isProcessingFiles ? 'Processing files...' : (isIOS ? 'Tap to Upload Photos' : 'Drag & drop photos here or click to upload')}
         </div>
-        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+        {isProcessingFiles && (
+          <div style={{ textAlign: 'center', marginTop: '0.5rem', color: 'var(--primary-color)', fontWeight: 500 }}>
+            Extracting and processing images, please wait...
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div>
             <label>Photos per page</label>
             <select value={photosPerPage} onChange={(e) => setPhotosPerPage(parseInt(e.target.value))}>
@@ -1307,7 +1320,20 @@ const PhotoReportBuilder = () => {
               <option value="smallest">Smallest</option>
             </select>
           </div>
-          <button onClick={generatePdf} disabled={isGeneratingPdf}>
+          <div style={{ flex: 1, minWidth: '150px' }}>
+            <label>Filename</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="text"
+                value={pdfFilename}
+                onChange={(e) => setPdfFilename(e.target.value)}
+                placeholder="photo-report"
+                style={{ marginBottom: 0, flex: 1 }}
+              />
+              <span style={{ color: 'var(--light-text-color)', whiteSpace: 'nowrap' }}>.pdf</span>
+            </div>
+          </div>
+          <button onClick={generatePdf} disabled={isGeneratingPdf || photos.length === 0}>
             {isGeneratingPdf ? 'Generating PDF...' : 'Generate PDF'}
           </button>
         </div>
