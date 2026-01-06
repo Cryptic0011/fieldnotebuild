@@ -1,2 +1,0 @@
-<div className="rotate-buttons">
-                <button className="delete-btn" onClick={(e) => {e.stopPropagation(); re

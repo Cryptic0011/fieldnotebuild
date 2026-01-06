@@ -61,6 +61,13 @@ const App = () => {
         'Upload multiple photos and print them into one document for your file.',
       component: PhotoReportBuilder,
     },
+    {
+      id: 'coverage',
+      name: 'Coverage Analysis',
+      description:
+        'Parse Dec pages and generate coverage analysis notes for claims.',
+      component: CoverageAnalysisBuilder,
+    },
   ];
 
   const [activeTab, setActiveTab] = useState(apps[0].id);
@@ -486,6 +493,593 @@ const InspectionBuilder = () => {
             style={{ background: 'var(--danger-color)' }}
           >
             Clear Inspection
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CoverageAnalysisBuilder = () => {
+  const initialManualFields = {
+    descriptionOfLoss: '',
+    dateOfLossReported: '',
+    iso: '',
+    ao: 'no prior loss is claim center'
+  };
+
+  const initialParsedData = {
+    policyType: '',
+    policyTermStart: '',
+    policyTermEnd: '',
+    beenWithAOSince: '',
+    construction: '',
+    sip: '',
+    coverageA: '',
+    coverageB: '',
+    coverageC: '',
+    coverageD: '',
+    deductible: ''
+  };
+
+  const [rawDecText, setRawDecText] = useState('');
+  const [parsedData, setParsedData] = useState(initialParsedData);
+  const [endorsements, setEndorsements] = useState([]);
+  const [manualFields, setManualFields] = useState(initialManualFields);
+  const [generatedNote, setGeneratedNote] = useState('');
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // Check if there are modifications to show clear button
+  const hasModifications = () => {
+    const manualFieldsChanged = JSON.stringify(manualFields) !== JSON.stringify(initialManualFields);
+    const parsedDataChanged = JSON.stringify(parsedData) !== JSON.stringify(initialParsedData);
+    const hasEndorsements = endorsements.length > 0;
+    const hasRawText = rawDecText.trim().length > 0;
+    return manualFieldsChanged || parsedDataChanged || hasEndorsements || hasRawText;
+  };
+
+  // Load saved data from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('fieldnote_coverage_data');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.rawDecText) setRawDecText(data.rawDecText);
+        if (data.parsedData) setParsedData(data.parsedData);
+        if (data.endorsements) setEndorsements(data.endorsements);
+        if (data.manualFields) setManualFields(data.manualFields);
+      } catch (error) {
+        console.error('Failed to load saved coverage data:', error);
+      }
+    }
+    setHasLoadedFromStorage(true);
+  }, []);
+
+  // Auto-save to localStorage whenever data changes
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+
+    const dataToSave = {
+      rawDecText,
+      parsedData,
+      endorsements,
+      manualFields,
+      savedAt: new Date().toISOString()
+    };
+
+    try {
+      localStorage.setItem('fieldnote_coverage_data', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('Failed to save coverage data:', error);
+    }
+  }, [rawDecText, parsedData, endorsements, manualFields, hasLoadedFromStorage]);
+
+  // ============ REGEX PARSING FUNCTIONS ============
+
+  // Parse policy type from "Forms That Apply To This Location" section
+  // Only matches: 17903, 15003, 15001, 15004
+  const parsePolicyType = (text) => {
+    // Look for forms section first for more accurate matching
+    const formsSection = text.match(/Forms\s+That\s+Apply\s+To\s+This\s+Location[:\s]*([\s\S]*?)(?=Secured|SECURED|Total|TOTAL|$)/i);
+    if (formsSection) {
+      const match = formsSection[1].match(/\b(17903|15003|15001|15004)\b/);
+      if (match) return match[1];
+    }
+    // Fallback: search entire text but be more restrictive
+    const fallbackMatch = text.match(/\b(17903|15003|15001|15004)\b/);
+    return fallbackMatch ? fallbackMatch[1] : '';
+  };
+
+  // Parse policy term dates (MM-DD-YYYY to MM-DD-YYYY)
+  const parsePolicyTerm = (text) => {
+    const match = text.match(/(\d{2}-\d{2}-\d{4})\s+to\s+(\d{2}-\d{2}-\d{4})/i);
+    if (match) {
+      return { start: match[1], end: match[2] };
+    }
+    return { start: '', end: '' };
+  };
+
+  // Calculate "Been with AO since" from policyholder year + policy term month
+  const parseBeenWithAOSince = (text, policyTermStart) => {
+    // Extract year from "Policyholder since YYYY"
+    const sinceMatch = text.match(/Policyholder\s+since\s+(\d{4})/i);
+    if (!sinceMatch) return '';
+
+    const year = sinceMatch[1];
+
+    // Extract month from policy term start (MM-DD-YYYY)
+    if (!policyTermStart) return year;
+
+    const monthNum = parseInt(policyTermStart.split('-')[0], 10);
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthName = monthNames[monthNum - 1] || '';
+
+    return monthName ? `${monthName} ${year}` : year;
+  };
+
+  // Parse construction details
+  const parseConstruction = (text) => {
+    // Try to match construction type with year built and roof info
+    const patterns = [
+      // "Frame Construction Built in 1985 Asphalt Roof Updated in 2008"
+      /((?:Frame|Masonry|Brick|Stucco|Wood)\s+Construction\s+Built\s+in\s+\d{4}[^\n]*(?:Roof[^\n]*)?)/i,
+      // Just construction type with year
+      /((?:Frame|Masonry|Brick|Stucco|Wood)\s+Construction[^\n]*\d{4}[^\n]*)/i,
+      // Generic construction line
+      /Construction[:\s]+([^\n]+)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) return (match[1] || match[0]).trim();
+    }
+    return '';
+  };
+
+  // Parse SIP (Secured Interest Party) from SECURED INTERESTED PARTIES section
+  const parseSIP = (text) => {
+    // Look for the section and extract party name
+    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|\n[A-Z]{3,}|$)/i);
+    if (sipSection) {
+      const lines = sipSection[0].split('\n').map(l => l.trim()).filter(Boolean);
+      // Skip header lines and find actual party name
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Skip section headers
+        if (line.match(/^(SECURED|INTERESTED|PARTIES|AND\/OR|ADDITIONAL|INSUREDS)/i)) continue;
+        // Skip location markers like "Loc 001"
+        if (line.match(/^Loc\s+\d+/i)) continue;
+        // Skip interest type lines
+        if (line.match(/^Interest:/i)) continue;
+        // Skip form references
+        if (line.match(/^Form:/i)) continue;
+        // This should be the party name
+        if (line.length > 2 && !line.match(/^\d+$/)) {
+          return line;
+        }
+      }
+    }
+    return '';
+  };
+
+  // Parse coverages A-D with dollar amounts
+  // Explicitly excludes E, F, and Adjusted Value Factor
+  const parseCoverages = (text) => {
+    const coverages = { A: '', B: '', C: '', D: '' };
+
+    // Coverage A - Dwelling
+    const aMatch = text.match(/A\s*[-–]?\s*Dwelling[:\s]*\$?([\d,]+)/i) ||
+                   text.match(/Dwelling[:\s]+\$?([\d,]+)/i);
+    if (aMatch) coverages.A = `$${aMatch[1]}`;
+
+    // Coverage B - Other Structures
+    const bMatch = text.match(/B\s*[-–]?\s*Other\s+Structures[:\s]*\$?([\d,]+)/i) ||
+                   text.match(/Other\s+Structures[:\s]+\$?([\d,]+)/i);
+    if (bMatch) coverages.B = `$${bMatch[1]}`;
+
+    // Coverage C - Personal Property
+    const cMatch = text.match(/C\s*[-–]?\s*Personal\s+Property[:\s]*\$?([\d,]+)/i) ||
+                   text.match(/Personal\s+Property[:\s]+\$?([\d,]+)/i);
+    if (cMatch) coverages.C = `$${cMatch[1]}`;
+
+    // Coverage D - Additional Living Expense or Loss of Rents
+    const dMatch = text.match(/D\s*[-–]?\s*(?:Additional\s+Living\s+Expense|Loss\s+of\s+Rents)[:\s]*\$?([\d,]+)/i) ||
+                   text.match(/(?:Additional\s+Living\s+Expense|Loss\s+of\s+Rents)[:\s]+\$?([\d,]+)/i);
+    if (dMatch) coverages.D = `$${dMatch[1]}`;
+
+    return coverages;
+  };
+
+  // Parse deductible (All Peril Deductible)
+  const parseDeductible = (text) => {
+    const match = text.match(/\$?([\d,]+)\s*[-–]?\s*All\s+Peril\s+Deductible/i) ||
+                  text.match(/All\s+Peril\s+Deductible[:\s]*\$?([\d,]+)/i);
+    if (match) return `$${match[1]} - All Peril Deductible`;
+    return '';
+  };
+
+  // Parse endorsements from "COVERAGES THAT APPLY" section
+  const parseEndorsements = (text) => {
+    const parsedEndorsements = [];
+    let idCounter = Date.now();
+
+    // Find the COVERAGES THAT APPLY section
+    const coveragesSection = text.match(/COVERAGES\s+THAT\s+APPLY[\s\S]*?(?=PREMIUM|SECURED|Forms\s+That\s+Apply|$)/i);
+    if (coveragesSection) {
+      const lines = coveragesSection[0].split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // Skip empty lines
+        if (!trimmed) continue;
+        // Skip section header
+        if (trimmed.match(/^COVERAGES\s+THAT\s+APPLY/i)) continue;
+        // Skip coverage lines A-F
+        if (trimmed.match(/^[A-F]\s+/i)) continue;
+        // Skip Adjusted Value Factor
+        if (trimmed.match(/Adjusted\s+Value\s+Factor/i)) continue;
+        // Skip Section/Deductible headers (we parse deductible separately)
+        if (trimmed.match(/^Section\s+/i)) continue;
+        // Skip LIMITS header
+        if (trimmed.match(/^LIMITS$/i)) continue;
+        // Skip pure dollar amounts on their own line
+        if (trimmed.match(/^\$?[\d,]+$/)) continue;
+
+        // Valid endorsement line (must be at least 3 chars)
+        if (trimmed.length > 2) {
+          parsedEndorsements.push({
+            id: idCounter++,
+            text: trimmed,
+            included: false
+          });
+        }
+      }
+    }
+
+    // Special case: Check for roof ACV clause anywhere in document
+    if (text.match(/Wind\s+or\s+hail\s+losses\s+to\s+your\s+roof\s+will\s+be\s+paid\s+on\s+an\s+Actual\s+Cash\s+Value\s+basis/i)) {
+      parsedEndorsements.push({
+        id: idCounter++,
+        text: 'Roof Wind/Hail - ACV Basis',
+        included: false
+      });
+    }
+
+    return parsedEndorsements;
+  };
+
+  // ============ HANDLER FUNCTIONS ============
+
+  // Main parse button handler
+  const handleParseDecPage = () => {
+    const policyType = parsePolicyType(rawDecText);
+    const term = parsePolicyTerm(rawDecText);
+    const beenWithAOSince = parseBeenWithAOSince(rawDecText, term.start);
+    const construction = parseConstruction(rawDecText);
+    const sip = parseSIP(rawDecText);
+    const coverages = parseCoverages(rawDecText);
+    const deductible = parseDeductible(rawDecText);
+    const parsedEndorsements = parseEndorsements(rawDecText);
+
+    setParsedData({
+      policyType,
+      policyTermStart: term.start,
+      policyTermEnd: term.end,
+      beenWithAOSince,
+      construction,
+      sip,
+      coverageA: coverages.A,
+      coverageB: coverages.B,
+      coverageC: coverages.C,
+      coverageD: coverages.D,
+      deductible
+    });
+
+    setEndorsements(parsedEndorsements);
+  };
+
+  // Update manual fields
+  const handleManualFieldChange = (field, value) => {
+    setManualFields(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Update parsed data fields (allows editing)
+  const handleParsedDataChange = (field, value) => {
+    setParsedData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Toggle endorsement inclusion
+  const toggleEndorsement = (id) => {
+    setEndorsements(prev => prev.map(e =>
+      e.id === id ? { ...e, included: !e.included } : e
+    ));
+  };
+
+  // Remove endorsement entirely
+  const removeEndorsement = (id) => {
+    setEndorsements(prev => prev.filter(e => e.id !== id));
+  };
+
+  // Copy to clipboard with feedback
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedNote);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  };
+
+  // Clear all data
+  const clearCoverageAnalysis = () => {
+    const confirmed = window.confirm('Are you sure? This will clear all coverage analysis data.');
+    if (confirmed) {
+      setRawDecText('');
+      setParsedData(initialParsedData);
+      setEndorsements([]);
+      setManualFields(initialManualFields);
+      setGeneratedNote('');
+      localStorage.removeItem('fieldnote_coverage_data');
+    }
+  };
+
+  // ============ OUTPUT GENERATION ============
+
+  // Generate the plain text output
+  useEffect(() => {
+    let note = 'Coverage Analysis:\n';
+    note += 'Description of Loss:\n';
+    note += manualFields.descriptionOfLoss ? `${manualFields.descriptionOfLoss}\n` : '\n';
+    note += '\n';
+    note += 'Date of loss reported:\n';
+    note += manualFields.dateOfLossReported ? `${manualFields.dateOfLossReported}\n` : '\n';
+    note += '\n';
+    note += 'Dec Page:\n';
+    note += `Policy: ${parsedData.policyType || ''}\n`;
+    note += `Auto Owners Policy Term: ${parsedData.policyTermStart && parsedData.policyTermEnd ?
+      `${parsedData.policyTermStart} - ${parsedData.policyTermEnd}` : ''}\n`;
+    note += `Been with AO since: ${parsedData.beenWithAOSince || ''}\n`;
+    note += 'Construction:\n';
+    note += `${parsedData.construction || ''}\n`;
+    note += '\n';
+    note += 'Coverages that may apply:\n';
+    note += `A Dwelling ${parsedData.coverageA || ''} B Other Structures ${parsedData.coverageB || ''} C Personal Property ${parsedData.coverageC || ''}\n`;
+    note += '\n';
+    note += parsedData.deductible ? `${parsedData.deductible}\n` : '\n';
+    note += '\n';
+    note += 'Endorsements that may apply:\n';
+
+    // Only include endorsements where included === true
+    const includedEndorsements = endorsements.filter(e => e.included);
+    for (const endorsement of includedEndorsements) {
+      note += `${endorsement.text}\n`;
+    }
+
+    note += '\n';
+    note += `SIP: ${parsedData.sip || ''}\n`;
+    note += `ISO: ${manualFields.iso || ''}\n`;
+    note += '\n';
+    note += `AO - ${manualFields.ao || ''}`;
+
+    setGeneratedNote(note);
+  }, [parsedData, endorsements, manualFields]);
+
+  // ============ RENDER ============
+
+  return (
+    <div>
+      {/* Clear Button at Top - Only show if there's saved content */}
+      {hasModifications() && (
+        <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <button
+            className="clear-inspection-btn"
+            onClick={clearCoverageAnalysis}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Coverage Analysis
+          </button>
+        </div>
+      )}
+
+      {/* Section 1: Manual Entry Fields */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Loss Information</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <label>Description of Loss:</label>
+          <textarea
+            value={manualFields.descriptionOfLoss}
+            onChange={(e) => handleManualFieldChange('descriptionOfLoss', e.target.value)}
+            placeholder="Enter description of loss..."
+          />
+
+          <label>Date of Loss Reported:</label>
+          <input
+            type="text"
+            value={manualFields.dateOfLossReported}
+            onChange={(e) => handleManualFieldChange('dateOfLossReported', e.target.value)}
+            placeholder="MM/DD/YYYY"
+          />
+
+          <label>ISO:</label>
+          <input
+            type="text"
+            value={manualFields.iso}
+            onChange={(e) => handleManualFieldChange('iso', e.target.value)}
+            placeholder="Enter ISO..."
+          />
+
+          <label>AO:</label>
+          <input
+            type="text"
+            value={manualFields.ao}
+            onChange={(e) => handleManualFieldChange('ao', e.target.value)}
+            placeholder="no prior loss is claim center"
+          />
+        </div>
+      </div>
+
+      {/* Section 2: Dec Page Input */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Dec Page Parser</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <label>Paste Dec Page Text:</label>
+          <textarea
+            value={rawDecText}
+            onChange={(e) => setRawDecText(e.target.value)}
+            placeholder="Paste the full Dec page text here..."
+            style={{ minHeight: '200px' }}
+          />
+          <button onClick={handleParseDecPage}>Parse Coverage Analysis</button>
+        </div>
+      </div>
+
+      {/* Section 3: Parsed Data Display */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Parsed Coverage Data</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <label>Policy Type:</label>
+          <input
+            type="text"
+            value={parsedData.policyType}
+            onChange={(e) => handleParsedDataChange('policyType', e.target.value)}
+            placeholder="17903, 15003, 15001, or 15004"
+          />
+
+          <label>Policy Term Start:</label>
+          <input
+            type="text"
+            value={parsedData.policyTermStart}
+            onChange={(e) => handleParsedDataChange('policyTermStart', e.target.value)}
+            placeholder="MM-DD-YYYY"
+          />
+
+          <label>Policy Term End:</label>
+          <input
+            type="text"
+            value={parsedData.policyTermEnd}
+            onChange={(e) => handleParsedDataChange('policyTermEnd', e.target.value)}
+            placeholder="MM-DD-YYYY"
+          />
+
+          <label>Been with AO since:</label>
+          <input
+            type="text"
+            value={parsedData.beenWithAOSince}
+            onChange={(e) => handleParsedDataChange('beenWithAOSince', e.target.value)}
+            placeholder="Month Year"
+          />
+
+          <label>Construction:</label>
+          <input
+            type="text"
+            value={parsedData.construction}
+            onChange={(e) => handleParsedDataChange('construction', e.target.value)}
+            placeholder="Construction details..."
+          />
+
+          <label>SIP:</label>
+          <input
+            type="text"
+            value={parsedData.sip}
+            onChange={(e) => handleParsedDataChange('sip', e.target.value)}
+            placeholder="Secured Interest Party..."
+          />
+
+          <label>Coverage A - Dwelling:</label>
+          <input
+            type="text"
+            value={parsedData.coverageA}
+            onChange={(e) => handleParsedDataChange('coverageA', e.target.value)}
+            placeholder="$XXX,XXX"
+          />
+
+          <label>Coverage B - Other Structures:</label>
+          <input
+            type="text"
+            value={parsedData.coverageB}
+            onChange={(e) => handleParsedDataChange('coverageB', e.target.value)}
+            placeholder="$XX,XXX"
+          />
+
+          <label>Coverage C - Personal Property:</label>
+          <input
+            type="text"
+            value={parsedData.coverageC}
+            onChange={(e) => handleParsedDataChange('coverageC', e.target.value)}
+            placeholder="$XXX,XXX"
+          />
+
+          <label>Coverage D - Additional Living Expense:</label>
+          <input
+            type="text"
+            value={parsedData.coverageD}
+            onChange={(e) => handleParsedDataChange('coverageD', e.target.value)}
+            placeholder="$XXX,XXX"
+          />
+
+          <label>Deductible:</label>
+          <input
+            type="text"
+            value={parsedData.deductible}
+            onChange={(e) => handleParsedDataChange('deductible', e.target.value)}
+            placeholder="$X,XXX - All Peril Deductible"
+          />
+
+          <label>Endorsements:</label>
+          <div className="endorsements-list">
+            {endorsements.length === 0 && (
+              <p style={{ color: 'var(--light-text-color)', fontStyle: 'italic' }}>
+                No endorsements parsed yet. Paste Dec page text and click "Parse Coverage Analysis".
+              </p>
+            )}
+            {endorsements.map(endorsement => (
+              <div key={endorsement.id} className="endorsement-row">
+                <input
+                  type="checkbox"
+                  checked={endorsement.included}
+                  onChange={() => toggleEndorsement(endorsement.id)}
+                />
+                <span>
+                  {endorsement.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4: Generated Output */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Generated Coverage Analysis</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <textarea
+            value={generatedNote}
+            onChange={(e) => setGeneratedNote(e.target.value)}
+            style={{ minHeight: '300px', fontFamily: 'monospace' }}
+          />
+          <div className="note-actions">
+            <button
+              className="copy-btn"
+              onClick={copyToClipboard}
+              style={copySuccess ? { background: '#16a34a' } : {}}
+            >
+              {copySuccess ? 'Copied!' : 'Copy to Clipboard'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Clear Button at Bottom - Only show if there's saved content */}
+      {hasModifications() && (
+        <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <button
+            className="clear-inspection-btn"
+            onClick={clearCoverageAnalysis}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Coverage Analysis
           </button>
         </div>
       )}
