@@ -593,10 +593,27 @@ const CoverageAnalysisBuilder = () => {
 
   // Parse policy term dates (MM-DD-YYYY to MM-DD-YYYY)
   const parsePolicyTerm = (text) => {
-    const match = text.match(/(\d{2}-\d{2}-\d{4})\s+to\s+(\d{2}-\d{2}-\d{4})/i);
-    if (match) {
-      return { start: match[1], end: match[2] };
+    // Try inline format first: "03-05-2025 to 03-05-2026"
+    const inlineMatch = text.match(/(\d{2}-\d{2}-\d{4})\s+to\s+(\d{2}-\d{2}-\d{4})/i);
+    if (inlineMatch) {
+      return { start: inlineMatch[1], end: inlineMatch[2] };
     }
+
+    // Try multiline format where "to" is on its own line:
+    // to
+    // 03-05-2025
+    // 03-05-2026
+    const multilineMatch = text.match(/\bto\s*[\r\n]+\s*(\d{2}-\d{2}-\d{4})\s*[\r\n]+\s*(\d{2}-\d{2}-\d{4})/i);
+    if (multilineMatch) {
+      return { start: multilineMatch[1], end: multilineMatch[2] };
+    }
+
+    // Try POLICY TERM section - look for "Tem" or "Term" followed by dates
+    const policyTermMatch = text.match(/\bTe(?:m|rm)\s+(\d{2}-\d{2}-\d{4})[\s\S]*?(?:to\.?|10\.)\s*(\d{2}-\d{2}-\d{4})/i);
+    if (policyTermMatch) {
+      return { start: policyTermMatch[1], end: policyTermMatch[2] };
+    }
+
     return { start: '', end: '' };
   };
 
@@ -640,22 +657,30 @@ const CoverageAnalysisBuilder = () => {
 
   // Parse SIP (Secured Interest Party) from SECURED INTERESTED PARTIES section
   const parseSIP = (text) => {
-    // Look for the section and extract party name
-    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|\n[A-Z]{3,}|$)/i);
+    // Look for the section - handle various header formats including:
+    // "SECURED INTERESTED PARTIES"
+    // "SECURED INTERESTED PARTIES AND/OR ADDITIONAL INTERESTED PARTIES AND/OR ADDITIONAL INSUREDS"
+    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|insurance\s+Score|Forms\s+That\s+Apply|TOTAL\s+POLICY|$)/i);
     if (sipSection) {
       const lines = sipSection[0].split('\n').map(l => l.trim()).filter(Boolean);
       // Skip header lines and find actual party name
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // Skip section headers
+        // Skip section headers and common header words
         if (line.match(/^(SECURED|INTERESTED|PARTIES|AND\/OR|ADDITIONAL|INSUREDS)/i)) continue;
+        // Skip if the entire line is part of the header
+        if (line.match(/SECURED\s+INTERESTED\s+PARTIES/i)) continue;
+        if (line.match(/ADDITIONAL\s+INTERESTED\s+PARTIES/i)) continue;
+        if (line.match(/ADDITIONAL\s+INSUREDS/i)) continue;
         // Skip location markers like "Loc 001"
         if (line.match(/^Loc\s+\d+/i)) continue;
         // Skip interest type lines
         if (line.match(/^Interest:/i)) continue;
         // Skip form references
         if (line.match(/^Form:/i)) continue;
-        // This should be the party name
+        // Skip loan numbers like "Loan: 2008993"
+        if (line.match(/^Loan:/i)) continue;
+        // This should be the party name (bank name, etc.)
         if (line.length > 2 && !line.match(/^\d+$/)) {
           return line;
         }
