@@ -2284,6 +2284,10 @@ const SettlementEmailBuilder = () => {
       const nrcdMatch = section.match(/(?:Total\s+)?Non[- ]?Recoverable\s+Depreciation\s+\$?([\d,.-]+)/i);
       const nonRecoverableDepreciation = nrcdMatch ? parseDollarAmount(nrcdMatch[1]) : 0;
 
+      // Paid When Incurred - for Ordinance or Law
+      const pwiMatch = section.match(/Total\s+Paid\s+When\s+Incurred\s+\$?([\d,.-]+)/i);
+      const paidWhenIncurred = pwiMatch ? parseDollarAmount(pwiMatch[1]) : 0;
+
       // Determine coverage type for special handling
       let coverageType = 'standard';
       if (coverageName.match(/Ordinance\s+or\s+Law|O\s*&\s*L/i)) {
@@ -2310,8 +2314,8 @@ const SettlementEmailBuilder = () => {
         netClaim,
         recoverableDepreciation,
         nonRecoverableDepreciation,
-        // For Ordinance or Law - Paid When Incurred
-        paidWhenIncurred: coverageType === 'ordinance' ? rcv : 0,
+        // For Ordinance or Law - Paid When Incurred (use parsed value, or fallback to rcv for backwards compatibility)
+        paidWhenIncurred: coverageType === 'ordinance' ? (paidWhenIncurred || rcv) : 0,
       });
     }
 
@@ -2433,22 +2437,22 @@ const SettlementEmailBuilder = () => {
     const salutation = insuredName ? `Mr. and Mrs. ${insuredName}` : 'Mr. and Mrs. [NAME]';
     emailParts.push(`${salutation},\n\nAttached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
 
-    htmlParts.push(`<p>${salutation},</p><p>Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p>`);
+    htmlParts.push(`<p style="margin: 0 0 16px 0;">${salutation},</p><p style="margin: 0 0 16px 0;">Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p>`);
 
     // Payment method - CHECK
     if (paymentType === 'Check') {
       if (checkDelivery === 'inPerson') {
         emailParts.push(`\nYour payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
-        htmlParts.push(`<p>Your payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+        htmlParts.push(`<p style="margin: 16px 0;">Your payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
       } else {
         emailParts.push(`\nYour payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
-        htmlParts.push(`<p>Your payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+        htmlParts.push(`<p style="margin: 16px 0;">Your payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
       }
     }
 
     // Coverage breakdown header
     emailParts.push(`\nBelow is a breakdown of the attached approved estimate:`);
-    htmlParts.push(`<p><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
+    htmlParts.push(`<p style="margin: 16px 0;"><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
 
     // Build HTML table for coverages
     let tableHtml = `<table style="border-collapse: collapse; width: 100%; max-width: 600px; font-family: Arial, sans-serif; margin: 16px 0;">`;
@@ -2540,48 +2544,52 @@ const SettlementEmailBuilder = () => {
 
     // Recoverable Depreciation section (only if there is RD)
     if (totals.totalRecoverableDepreciation > 0) {
-      const rdText = `\nRecoverable depreciation in the amount of ${formatDollar(totals.totalRecoverableDepreciation)} has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.`;
+      const rdAmount = formatDollar(totals.totalRecoverableDepreciation);
+      const rdText = `\nRecoverable depreciation in the amount of ${rdAmount} has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.`;
       emailParts.push(rdText);
-      htmlParts.push(`<p>${rdText.trim()}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">Recoverable depreciation in the amount of <strong>${rdAmount}</strong> has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.</p>`);
     }
 
     // Non-Recoverable Depreciation section (based on user selection)
     if (nrcdType === 'roof' && totals.totalNonRecoverableDepreciation > 0) {
-      const nrcdRoofText = `\nNon-recoverable depreciation in the amount of ${formatDollar(totals.totalNonRecoverableDepreciation)} has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.`;
+      const nrcdAmount = formatDollar(totals.totalNonRecoverableDepreciation);
+      const nrcdRoofText = `\nNon-recoverable depreciation in the amount of ${nrcdAmount} has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.`;
       emailParts.push(nrcdRoofText);
-      htmlParts.push(`<p>${nrcdRoofText.trim()}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">Non-recoverable depreciation in the amount of <strong>${nrcdAmount}</strong> has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.</p>`);
     } else if (nrcdType === 'pp' && totals.totalNonRecoverableDepreciation > 0) {
-      const nrcdPPText = `\nNon-recoverable depreciation has been withheld in the amount of ${formatDollar(totals.totalNonRecoverableDepreciation)}. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.`;
+      const nrcdAmount = formatDollar(totals.totalNonRecoverableDepreciation);
+      const nrcdPPText = `\nNon-recoverable depreciation has been withheld in the amount of ${nrcdAmount}. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.`;
       emailParts.push(nrcdPPText);
-      htmlParts.push(`<p>${nrcdPPText.trim()}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">Non-recoverable depreciation has been withheld in the amount of <strong>${nrcdAmount}</strong>. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.</p>`);
     }
 
     // Paid When Incurred / Ordinance or Law section (only if O&L exists)
     if (totals.hasOrdinanceOrLaw && totals.totalPaidWhenIncurred > 0) {
-      const pwiText = `\nPaid when incurred code upgrades in the amount of ${formatDollar(totals.totalPaidWhenIncurred)} have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.`;
+      const pwiAmount = formatDollar(totals.totalPaidWhenIncurred);
+      const pwiText = `\nPaid when incurred code upgrades in the amount of ${pwiAmount} have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.`;
       emailParts.push(pwiText);
-      htmlParts.push(`<p>${pwiText.trim()}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">Paid when incurred code upgrades in the amount of <strong>${pwiAmount}</strong> have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.</p>`);
     }
 
     // Payment method - EFT
     if (paymentType === 'EFT') {
       const eftText = `\nWe are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.`;
       emailParts.push(eftText);
-      htmlParts.push(`<p>${eftText.trim()}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">We are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.</p>`);
     }
 
     // Claim number and One Inc contact info (only for EFT)
     if (paymentType === 'EFT') {
       emailParts.push(`\nYour Claim # is: ${fullClaimNumber}`);
-      htmlParts.push(`<p><strong>Your Claim # is:</strong> ${fullClaimNumber}</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;"><strong>Your Claim # is:</strong> ${fullClaimNumber}</p>`);
 
       emailParts.push(`\nIf you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.`);
-      htmlParts.push(`<p>If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p>`);
+      htmlParts.push(`<p style="margin: 16px 0;">If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p>`);
     }
 
     // Closing
     emailParts.push(`\nIf you have any other questions related to your claim, please don't hesitate to contact me.`);
-    htmlParts.push(`<p>If you have any other questions related to your claim, please don't hesitate to contact me.</p>`);
+    htmlParts.push(`<p style="margin: 16px 0;">If you have any other questions related to your claim, please don't hesitate to contact me.</p>`);
 
     // Disclaimer
     const disclaimer = `\nAll rights, terms, conditions and exclusions in your policy are in full force and effect and are completely reserved. No action by any employee, agent, attorney or other person on behalf of Auto-Owners Insurance; or hired by Auto-Owners Insurance on your behalf; shall waive or be construed as having waived any rights, term, condition, exclusion or any other provision of the policy.`;
