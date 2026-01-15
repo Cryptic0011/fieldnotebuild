@@ -2439,22 +2439,22 @@ const SettlementEmailBuilder = () => {
     const salutation = insuredName ? `Mr. and Mrs. ${insuredName}` : 'Mr. and Mrs. [NAME]';
     emailParts.push(`${salutation},\n\nAttached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
 
-    htmlParts.push(`<p style="margin: 0 0 11pt 0;">${salutation},</p><p style="margin: 0 0 11pt 0;">Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p>`);
+    htmlParts.push(`<p>${salutation},</p><br><p>Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p><br>`);
 
     // Payment method - CHECK
     if (paymentType === 'Check') {
       if (checkDelivery === 'inPerson') {
         emailParts.push(`\nYour payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
-        htmlParts.push(`<p style="margin: 0 0 11pt 0;">Your payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+        htmlParts.push(`<p>Your payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p><br>`);
       } else {
         emailParts.push(`\nYour payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
-        htmlParts.push(`<p style="margin: 0 0 11pt 0;">Your payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+        htmlParts.push(`<p>Your payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p><br>`);
       }
     }
 
     // Coverage breakdown header
     emailParts.push(`\nBelow is a breakdown of the attached approved estimate:`);
-    htmlParts.push(`<p style="margin: 0 0 11pt 0;"><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
+    htmlParts.push(`<p><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
 
     // Build HTML table for coverages
     let tableHtml = `<table style="border-collapse: collapse; width: 100%; max-width: 600px; font-family: Arial, sans-serif; font-size: 11pt; margin: 0 0 11pt 0;">`;
@@ -2483,7 +2483,7 @@ const SettlementEmailBuilder = () => {
       } else {
         // Standard coverage format - only show if there's depreciation
         if (coverage.depreciation > 0) {
-          coverageText = `\nSummary for ${coverage.name} Replacement Cost:\n${formatDollar(coverage.rcv)}\nLess Recoverable Depreciation: ${formatDollar(coverage.recoverableDepreciation)}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+          coverageText = `\nSummary for ${coverage.name} Replacement Cost:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Recoverable Depreciation: ${formatDollar(coverage.recoverableDepreciation)}${coverage.nonRecoverableDepreciation > 0 ? `\nLess Non-Recoverable Depreciation: ${formatDollar(coverage.nonRecoverableDepreciation)}` : ''}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
 
           tableHtml += `
             <tr style="background-color: #f8fafc;">
@@ -2497,6 +2497,10 @@ const SettlementEmailBuilder = () => {
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Recoverable Depreciation:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.recoverableDepreciation)}</td>
             </tr>
+            ${coverage.nonRecoverableDepreciation > 0 ? `<tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Non-Recoverable Depreciation:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.nonRecoverableDepreciation)}</td>
+            </tr>` : ''}
             <tr>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Deductible:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.deductible)}</td>
@@ -2549,7 +2553,7 @@ const SettlementEmailBuilder = () => {
       const rdAmount = formatDollar(totals.totalRecoverableDepreciation);
       const rdText = `\nRecoverable depreciation in the amount of ${rdAmount} has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.`;
       emailParts.push(rdText);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">Recoverable depreciation in the amount of <strong>${rdAmount}</strong> has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.</p>`);
+      htmlParts.push(`<p>Recoverable depreciation in the amount of <strong>${rdAmount}</strong> has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.</p><br>`);
     }
 
     // Non-Recoverable Depreciation section (based on user selection)
@@ -2557,12 +2561,12 @@ const SettlementEmailBuilder = () => {
       const nrcdAmount = formatDollar(totals.totalNonRecoverableDepreciation);
       const nrcdRoofText = `\nNon-recoverable depreciation in the amount of ${nrcdAmount} has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.`;
       emailParts.push(nrcdRoofText);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">Non-recoverable depreciation in the amount of <strong>${nrcdAmount}</strong> has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.</p>`);
+      htmlParts.push(`<p>Non-recoverable depreciation in the amount of <strong>${nrcdAmount}</strong> has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.</p><br>`);
     } else if (nrcdType === 'pp' && totals.totalNonRecoverableDepreciation > 0) {
       const nrcdAmount = formatDollar(totals.totalNonRecoverableDepreciation);
       const nrcdPPText = `\nNon-recoverable depreciation has been withheld in the amount of ${nrcdAmount}. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.`;
       emailParts.push(nrcdPPText);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">Non-recoverable depreciation has been withheld in the amount of <strong>${nrcdAmount}</strong>. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.</p>`);
+      htmlParts.push(`<p>Non-recoverable depreciation has been withheld in the amount of <strong>${nrcdAmount}</strong>. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.</p><br>`);
     }
 
     // Paid When Incurred / Ordinance or Law section (only if O&L exists)
@@ -2570,28 +2574,28 @@ const SettlementEmailBuilder = () => {
       const pwiAmount = formatDollar(totals.totalPaidWhenIncurred);
       const pwiText = `\nPaid when incurred code upgrades in the amount of ${pwiAmount} have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.`;
       emailParts.push(pwiText);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">Paid when incurred code upgrades in the amount of <strong>${pwiAmount}</strong> have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.</p>`);
+      htmlParts.push(`<p>Paid when incurred code upgrades in the amount of <strong>${pwiAmount}</strong> have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.</p><br>`);
     }
 
     // Payment method - EFT
     if (paymentType === 'EFT') {
       const eftText = `\nWe are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.`;
       emailParts.push(eftText);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">We are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.</p>`);
+      htmlParts.push(`<p>We are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.</p><br>`);
     }
 
     // Claim number and One Inc contact info (only for EFT)
     if (paymentType === 'EFT') {
       emailParts.push(`\nYour Claim # is: ${fullClaimNumber}`);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;"><strong>Your Claim # is:</strong> ${fullClaimNumber}</p>`);
+      htmlParts.push(`<p><strong>Your Claim # is:</strong> ${fullClaimNumber}</p><br>`);
 
       emailParts.push(`\nIf you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.`);
-      htmlParts.push(`<p style="margin: 0 0 11pt 0;">If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p>`);
+      htmlParts.push(`<p>If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p><br>`);
     }
 
     // Closing
     emailParts.push(`\nIf you have any other questions related to your claim, please don't hesitate to contact me.`);
-    htmlParts.push(`<p style="margin: 0 0 11pt 0;">If you have any other questions related to your claim, please don't hesitate to contact me.</p>`);
+    htmlParts.push(`<p>If you have any other questions related to your claim, please don't hesitate to contact me.</p><br>`);
 
     // Disclaimer
     const disclaimer = `\nAll rights, terms, conditions and exclusions in your policy are in full force and effect and are completely reserved. No action by any employee, agent, attorney or other person on behalf of Auto-Owners Insurance; or hired by Auto-Owners Insurance on your behalf; shall waive or be construed as having waived any rights, term, condition, exclusion or any other provision of the policy.`;
