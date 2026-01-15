@@ -707,23 +707,32 @@ const CoverageAnalysisBuilder = () => {
     return monthName ? `${monthName} ${year}` : year;
   };
 
-  // Parse construction details
+  // Parse construction details including siding, built year, and roof info
   const parseConstruction = (text) => {
-    // Try to match construction type with year built and roof info
-    const patterns = [
-      // "Frame Construction Built in 1985 Asphalt Roof Updated in 2008"
-      /((?:Frame|Masonry|Brick|Stucco|Wood)\s+Construction\s+Built\s+in\s+\d{4}[^\n]*(?:Roof[^\n]*)?)/i,
-      // Just construction type with year
-      /((?:Frame|Masonry|Brick|Stucco|Wood)\s+Construction[^\n]*\d{4}[^\n]*)/i,
-      // Generic construction line
-      /Construction[:\s]+([^\n]+)/i
-    ];
+    let result = '';
 
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match) return (match[1] || match[0]).trim();
+    // Try to find siding/construction type with built year
+    // Handles: "Cement Fiber Siding Built in 2020", "Frame Construction Built in 1985", "Brick Veneer Built in 2010"
+    const sidingMatch = text.match(/((?:Cement\s+Fiber|Vinyl|Aluminum|Wood|Brick|Stone|Stucco|Hardy|Fiber\s+Cement)\s+(?:Siding|Veneer)|(?:Frame|Masonry|Brick|Stucco|Wood)\s+Construction)\s+Built\s+in\s+(\d{4})/i);
+    if (sidingMatch) {
+      result = `${sidingMatch[1]} Built in ${sidingMatch[2]}`;
+    } else {
+      // Try simpler "Built in YYYY" pattern
+      const builtMatch = text.match(/Built\s+in\s+(\d{4})/i);
+      if (builtMatch) {
+        result = `Built in ${builtMatch[1]}`;
+      }
     }
-    return '';
+
+    // Look for roof info on same or separate line
+    // Handles: "Asphalt Roof Updated in 2020", "Asphalt Shingle Roof Updated in 2015"
+    const roofMatch = text.match(/((?:Asphalt|Metal|Tile|Slate|Wood|Shake|Composition|Architectural)\s+(?:Shingle\s+)?Roof)\s+(?:Updated|Replaced)?\s*(?:in\s+)?(\d{4})/i);
+    if (roofMatch) {
+      const roofInfo = roofMatch[2] ? `${roofMatch[1]} Updated in ${roofMatch[2]}` : roofMatch[1];
+      result = result ? `${result}\n${roofInfo}` : roofInfo;
+    }
+
+    return result;
   };
 
   // Parse SIP (Secured Interest Party) from SECURED INTERESTED PARTIES section
@@ -743,6 +752,10 @@ const CoverageAnalysisBuilder = () => {
         if (line.match(/SECURED\s+INTERESTED\s+PARTIES/i)) continue;
         if (line.match(/ADDITIONAL\s+INTERESTED\s+PARTIES/i)) continue;
         if (line.match(/ADDITIONAL\s+INSUREDS/i)) continue;
+        // Skip "See Schedule" references
+        if (line.match(/See\s+Schedule/i)) continue;
+        // Skip standalone words that are not party names
+        if (line.match(/^(TERM|TOTAL|PREMIUM|Company|Bill|Mkt|Terr)$/i)) continue;
         // Skip location markers like "Loc 001"
         if (line.match(/^Loc\s+\d+/i)) continue;
         // Skip interest type lines
@@ -756,12 +769,15 @@ const CoverageAnalysisBuilder = () => {
         // Skip PO BOX or address lines
         if (line.match(/^PO\s+BOX/i)) continue;
         if (line.match(/^\d+\s+[A-Z]/i)) continue; // Street addresses
+        // Skip city/state/zip lines
+        if (line.match(/^[A-Z]+\s+[A-Z]{2}\s+\d{5}/i)) continue;
         // This should be the party name (bank name, etc.)
         // If it contains "Loan:" extract just the name part before it
         if (line.match(/\s+Loan:/i)) {
           line = line.replace(/\s+Loan:.*$/i, '').trim();
         }
-        if (line.length > 2 && !line.match(/^\d+$/)) {
+        // Party names are usually longer and contain multiple words or uppercase letters
+        if (line.length > 3 && !line.match(/^\d+$/) && (line.includes(' ') || line === line.toUpperCase())) {
           return line;
         }
       }
