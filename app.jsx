@@ -743,7 +743,8 @@ const CoverageAnalysisBuilder = () => {
     // Allow any characters after Loan: (not just digits, since loan numbers can be alphanumeric)
     const loanLineMatch = text.match(/([A-Z][A-Z\s\/&.,]+(?:LLC|INC|CORP|BANK|SERVICES|MORTGAGE|ISAOA|ATIMA)?)\s+Loan:\s*\S+/i);
     if (loanLineMatch) {
-      return loanLineMatch[1].trim();
+      // Clean up the result - remove any trailing colon or loan number that might have been captured
+      return loanLineMatch[1].trim().replace(/\s*:.*$/, '').trim();
     }
 
     // Look for the FULL "SECURED INTERESTED PARTIES AND/OR..." section header (not just "Secured Interested Parties: See Schedule")
@@ -779,10 +780,12 @@ const CoverageAnalysisBuilder = () => {
         if (line.match(/^\d+\s+[A-Z]/i)) continue; // Street addresses
         // Skip city/state/zip lines
         if (line.match(/^[A-Z]+\s+[A-Z]{2}\s+\d{5}/i)) continue;
-        // If line contains "Loan:" extract just the name part before it
+        // If line contains "Loan:" or just a colon with numbers, extract just the name part before it
         if (line.match(/\s+Loan:/i)) {
           line = line.replace(/\s+Loan:.*$/i, '').trim();
         }
+        // Also remove any trailing ": number" pattern (e.g., ": 567890")
+        line = line.replace(/\s*:\s*\S+\s*$/, '').trim();
         // Party names are usually all caps with multiple words (bank names)
         if (line.length > 3 && !line.match(/^\d+$/) && line.match(/^[A-Z]/)) {
           return line;
