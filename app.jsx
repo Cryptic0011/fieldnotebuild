@@ -740,13 +740,15 @@ const CoverageAnalysisBuilder = () => {
   const parseSIP = (text) => {
     // First try to find a line with "Loan:" which typically contains the mortgagee name
     // Format: "SERVICEMAC LLC Loan: 8010211369" or "PHH MORTGAGE SERVICES ISAOA Loan: xxx"
-    const loanLineMatch = text.match(/([A-Z][A-Z\s\/&.,]+(?:LLC|INC|CORP|BANK|SERVICES|MORTGAGE|ISAOA|ATIMA)?)\s+Loan:\s*\d+/i);
+    // Allow any characters after Loan: (not just digits, since loan numbers can be alphanumeric)
+    const loanLineMatch = text.match(/([A-Z][A-Z\s\/&.,]+(?:LLC|INC|CORP|BANK|SERVICES|MORTGAGE|ISAOA|ATIMA)?)\s+Loan:\s*\S+/i);
     if (loanLineMatch) {
       return loanLineMatch[1].trim();
     }
 
-    // Look for the SECURED INTERESTED PARTIES section
-    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=Insurance\s+Score|Forms\s+That\s+Apply|Page\s+\d|$)/i);
+    // Look for the FULL "SECURED INTERESTED PARTIES AND/OR..." section header (not just "Secured Interested Parties: See Schedule")
+    // This distinguishes the actual mortgagee section from the reference line
+    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES\s+AND\/OR[\s\S]*?(?=Insurance\s+Score|Forms\s+That\s+Apply|Page\s+\d|$)/i);
     if (sipSection) {
       const lines = sipSection[0].split('\n').map(l => l.trim()).filter(Boolean);
       // Skip header lines and find actual party name
