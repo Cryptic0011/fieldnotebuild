@@ -662,10 +662,27 @@ const CoverageAnalysisBuilder = () => {
       return { start: multilineMatch[1], end: multilineMatch[2] };
     }
 
+    // Try POLICY TERM section with dates separated by "12:01 a.m." lines:
+    // POLICY TERM
+    // 04-09-2025
+    // 12:01 a.m.
+    // 04-09-2026
+    // 12:01 a.m.
+    const policyTermWithTimeMatch = text.match(/POLICY\s+TERM[\s\S]*?(\d{2}-\d{2}-\d{4})\s*[\r\n]+\s*12:01\s*a\.m\.?\s*[\r\n]+\s*(\d{2}-\d{2}-\d{4})/i);
+    if (policyTermWithTimeMatch) {
+      return { start: policyTermWithTimeMatch[1], end: policyTermWithTimeMatch[2] };
+    }
+
     // Try POLICY TERM section - look for "Tem" or "Term" followed by dates
     const policyTermMatch = text.match(/\bTe(?:m|rm)\s+(\d{2}-\d{2}-\d{4})[\s\S]*?(?:to\.?|10\.)\s*(\d{2}-\d{2}-\d{4})/i);
     if (policyTermMatch) {
       return { start: policyTermMatch[1], end: policyTermMatch[2] };
+    }
+
+    // Try to find two consecutive dates in the POLICY TERM area
+    const termAreaMatch = text.match(/POLICY\s+TERM[\s\S]*?(\d{2}-\d{2}-\d{4})[\s\S]*?(\d{2}-\d{2}-\d{4})/i);
+    if (termAreaMatch) {
+      return { start: termAreaMatch[1], end: termAreaMatch[2] };
     }
 
     return { start: '', end: '' };
@@ -714,12 +731,12 @@ const CoverageAnalysisBuilder = () => {
     // Look for the section - handle various header formats including:
     // "SECURED INTERESTED PARTIES"
     // "SECURED INTERESTED PARTIES AND/OR ADDITIONAL INTERESTED PARTIES AND/OR ADDITIONAL INSUREDS"
-    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|insurance\s+Score|Forms\s+That\s+Apply|TOTAL\s+POLICY|$)/i);
+    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|Insurance\s+Score|Forms\s+That\s+Apply|TOTAL\s+POLICY|$)/i);
     if (sipSection) {
       const lines = sipSection[0].split('\n').map(l => l.trim()).filter(Boolean);
       // Skip header lines and find actual party name
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        let line = lines[i];
         // Skip section headers and common header words
         if (line.match(/^(SECURED|INTERESTED|PARTIES|AND\/OR|ADDITIONAL|INSUREDS)/i)) continue;
         // Skip if the entire line is part of the header
@@ -734,7 +751,16 @@ const CoverageAnalysisBuilder = () => {
         if (line.match(/^Form:/i)) continue;
         // Skip loan numbers like "Loan: 2008993"
         if (line.match(/^Loan:/i)) continue;
+        // Skip SIP-ID lines
+        if (line.match(/^SIP-ID:/i)) continue;
+        // Skip PO BOX or address lines
+        if (line.match(/^PO\s+BOX/i)) continue;
+        if (line.match(/^\d+\s+[A-Z]/i)) continue; // Street addresses
         // This should be the party name (bank name, etc.)
+        // If it contains "Loan:" extract just the name part before it
+        if (line.match(/\s+Loan:/i)) {
+          line = line.replace(/\s+Loan:.*$/i, '').trim();
+        }
         if (line.length > 2 && !line.match(/^\d+$/)) {
           return line;
         }
@@ -763,9 +789,11 @@ const CoverageAnalysisBuilder = () => {
                    text.match(/Personal\s+Property[:\s]+\$?([\d,]+)/i);
     if (cMatch) coverages.C = `$${cMatch[1]}`;
 
-    // Coverage D - Additional Living Expense or Loss of Rents
-    const dMatch = text.match(/D\s*[-–]?\s*(?:Additional\s+Living\s+Expense|Loss\s+of\s+Rents)[:\s]*\$?([\d,]+)/i) ||
-                   text.match(/(?:Additional\s+Living\s+Expense|Loss\s+of\s+Rents)[:\s]+\$?([\d,]+)/i);
+    // Coverage D - Additional Living Expense or Loss of Rents or Loss of Use
+    // Handle formats like: "D Loss of Rents 5,000" or "D - Loss of Rents $5,000"
+    const dMatch = text.match(/D\s+(?:Additional\s+Living\s+Expense|Loss\s+of\s+(?:Rents|Use))\s+\$?([\d,]+)/i) ||
+                   text.match(/D\s*[-–]\s*(?:Additional\s+Living\s+Expense|Loss\s+of\s+(?:Rents|Use))[:\s]*\$?([\d,]+)/i) ||
+                   text.match(/(?:Additional\s+Living\s+Expense|Loss\s+of\s+(?:Rents|Use))[:\s]+\$?([\d,]+)/i);
     if (dMatch) coverages.D = `$${dMatch[1]}`;
 
     return coverages;
