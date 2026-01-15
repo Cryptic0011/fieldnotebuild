@@ -9,6 +9,38 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Info Modal Component
+const InfoModal = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="info-modal-backdrop" onClick={onClose}>
+      <div className="info-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="info-modal-header">
+          <h3>{title}</h3>
+          <button className="info-modal-close" onClick={onClose}>
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+        </div>
+        <div className="info-modal-body">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Info Button Component
+const InfoButton = ({ onClick }) => (
+  <button className="info-button" onClick={onClick} aria-label="More information">
+    <svg viewBox="0 0 24 24" width="20" height="20">
+      <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+    </svg>
+  </button>
+);
+
 // iOS Add to Home Screen Prompt Component
 const IOSInstallPrompt = () => {
   // Detect iOS devices including iPad on iPadOS 13+
@@ -131,6 +163,7 @@ const InspectionBuilder = () => {
   const [generatedNote, setGeneratedNote] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Helper function to check if current state has meaningful changes from initial state
   const hasModifications = () => {
@@ -449,11 +482,24 @@ const InspectionBuilder = () => {
 
   return (
     <div>
+      {/* Info Button */}
+      <div className="info-button-container">
+        <InfoButton onClick={() => setShowInfoModal(true)} />
+      </div>
+
+      {/* Info Modal */}
+      <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} title="Inspection Builder">
+        <p>This tool helps build field inspection notes quickly while not leaving anything required out.</p>
+        <p>The format follows an efficient structure for field notes, designed to be used on your phone while walking around the house using voice dictation to fill it out.</p>
+        <p><strong>Auto-Save:</strong> You can lock your phone and your inputs will save to your cache. Works great on desktop too.</p>
+        <p><strong>Tip:</strong> Use the + buttons between sections to add custom notes anywhere in your inspection.</p>
+      </InfoModal>
+
       {/* Clear Inspection Button at Top - Only show if there's saved content */}
       {hasModifications() && (
         <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <button 
-            className="clear-inspection-btn" 
+          <button
+            className="clear-inspection-btn"
             onClick={clearInspection}
             style={{ background: 'var(--danger-color)' }}
           >
@@ -536,6 +582,7 @@ const CoverageAnalysisBuilder = () => {
   const [generatedNote, setGeneratedNote] = useState('');
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Check if there are modifications to show clear button
   const hasModifications = () => {
@@ -902,6 +949,19 @@ const CoverageAnalysisBuilder = () => {
 
   return (
     <div>
+      {/* Info Button */}
+      <div className="info-button-container">
+        <InfoButton onClick={() => setShowInfoModal(true)} />
+      </div>
+
+      {/* Info Modal */}
+      <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} title="Coverage Analysis">
+        <p>Initial claim note builder for coverage analysis. Copy and paste the main portion of your Dec page into the parser and it will fill out most of the information you need.</p>
+        <p><strong>Note:</strong> Currently SIP and policy period parsing may have issues on some formats - these can be manually corrected after parsing.</p>
+        <p><strong>Privacy:</strong> This data is not saved externally. All code is executed on your device. This is a static website and the information pasted here is not being stored anywhere externally.</p>
+        <p><strong>Tip:</strong> After parsing, you can manually edit any field that wasn't captured correctly.</p>
+      </InfoModal>
+
       {/* Clear Button at Top - Only show if there's saved content */}
       {hasModifications() && (
         <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -1131,6 +1191,7 @@ const PhotoReportBuilder = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [pdfFilename, setPdfFilename] = useState('photo-report');
+  const [showInfoModal, setShowInfoModal] = useState(false);
   // Grid drag indicator state
   const [dragFromIndex, setDragFromIndex] = useState(null);
   const [dragIndicator, setDragIndicator] = useState({ index: null, position: 'before' });
@@ -1916,9 +1977,28 @@ const PhotoReportBuilder = () => {
 
   return (
     <div>
+      {/* Info Button */}
+      <div className="info-button-container">
+        <InfoButton onClick={() => setShowInfoModal(true)} />
+      </div>
+
+      {/* Info Modal */}
+      <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} title="Photo Report">
+        <p>This tool is designed to get photos into your file quickly - not as a main photo report for your inspection.</p>
+        <p><strong>Use Case:</strong> When contractors or insureds send multiple photos in an email body or attachment. Drag and drop your <code>.msg</code> file straight from Outlook and it will extract the photos to print into your file.</p>
+        <p><strong>Features:</strong></p>
+        <ul>
+          <li>Label photos with captions if needed</li>
+          <li>Rotate images that are oriented incorrectly</li>
+          <li>Reorder photos by dragging them</li>
+          <li>Export to PDF with 1 or 2 photos per page</li>
+        </ul>
+        <p><strong>Tip:</strong> On iOS, tap to upload. On desktop, drag & drop works great.</p>
+      </InfoModal>
+
       <div id="photo-controls" className="section-card no-print">
         <h2>Photo Report Builder</h2>
-        
+
         {/* Clear Photos Button */}
         {photos.length > 0 && (
           <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
@@ -2088,6 +2168,7 @@ const SettlementEmailBuilder = () => {
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyHtmlSuccess, setCopyHtmlSuccess] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Check if there are modifications to show clear button
   const hasModifications = () => {
@@ -2515,6 +2596,26 @@ const SettlementEmailBuilder = () => {
 
   return (
     <div>
+      {/* Info Button */}
+      <div className="info-button-container">
+        <InfoButton onClick={() => setShowInfoModal(true)} />
+      </div>
+
+      {/* Info Modal */}
+      <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} title="Settlement Email">
+        <p>Very useful for onsite settlements. Paste your coverage summaries from your estimate into the parser and it will create a professional email template.</p>
+        <p><strong>Features:</strong></p>
+        <ul>
+          <li>Copy and paste multiple coverages at once</li>
+          <li>Automatically detects coverage types (Dwelling, Contents, O&L, etc.)</li>
+          <li>Handles recoverable and non-recoverable depreciation</li>
+          <li>Generates HTML table for Outlook formatting</li>
+        </ul>
+        <p><strong>Note:</strong> This does not currently work with supplements as prior payments have not been added, and the template has not been configured for this.</p>
+        <p><strong>Example - Copy this format from Xactimate:</strong></p>
+        <img src="/public/images/settlement-example.png" alt="Settlement summary example from Xactimate" style={{ width: '100%', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '0.5rem' }} />
+      </InfoModal>
+
       {/* Clear Button at Top */}
       {hasModifications() && (
         <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
