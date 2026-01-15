@@ -2073,7 +2073,10 @@ const SettlementEmailBuilder = () => {
   const initialManualFields = {
     insuredName: '',
     paymentType: 'Check',
-    claimNumber: '',
+    checkDelivery: 'mail', // 'mail' or 'inPerson'
+    claimNumberPrefix: '300',
+    claimNumberMiddle: '',
+    claimNumberSuffix: '2026',
     nrcdType: 'none', // 'none', 'roof', 'pp' (personal property)
   };
 
@@ -2336,7 +2339,10 @@ const SettlementEmailBuilder = () => {
     }
 
     const totals = getTotals();
-    const { insuredName, paymentType, claimNumber, nrcdType } = manualFields;
+    const { insuredName, paymentType, checkDelivery, claimNumberPrefix, claimNumberMiddle, claimNumberSuffix, nrcdType } = manualFields;
+
+    // Build full claim number
+    const fullClaimNumber = claimNumberMiddle ? `${claimNumberPrefix}-${claimNumberMiddle}-${claimNumberSuffix}` : 'xxxxx';
 
     // Build email sections
     let emailParts = [];
@@ -2350,8 +2356,13 @@ const SettlementEmailBuilder = () => {
 
     // Payment method - CHECK
     if (paymentType === 'Check') {
-      emailParts.push(`\nYour payment has been issued by check and should arrive within 3-5 business days in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
-      htmlParts.push(`<p>Your payment has been issued by check and should arrive within 3-5 business days in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+      if (checkDelivery === 'inPerson') {
+        emailParts.push(`\nYour payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
+        htmlParts.push(`<p>Your payment has been issued by check and was provided to you in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+      } else {
+        emailParts.push(`\nYour payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
+        htmlParts.push(`<p>Your payment has been issued by check and should arrive within 3-5 business days. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+      }
     }
 
     // Coverage breakdown header
@@ -2478,13 +2489,11 @@ const SettlementEmailBuilder = () => {
       htmlParts.push(`<p>${eftText.trim()}</p>`);
     }
 
-    // Claim number
-    const claimNum = claimNumber || 'xxxxx';
-    emailParts.push(`\nYour Claim # is: ${claimNum}`);
-    htmlParts.push(`<p><strong>Your Claim # is:</strong> ${claimNum}</p>`);
-
-    // One Inc contact info (only for EFT)
+    // Claim number and One Inc contact info (only for EFT)
     if (paymentType === 'EFT') {
+      emailParts.push(`\nYour Claim # is: ${fullClaimNumber}`);
+      htmlParts.push(`<p><strong>Your Claim # is:</strong> ${fullClaimNumber}</p>`);
+
       emailParts.push(`\nIf you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.`);
       htmlParts.push(`<p>If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p>`);
     }
@@ -2531,14 +2540,6 @@ const SettlementEmailBuilder = () => {
             placeholder="e.g., Smith"
           />
 
-          <label>Claim Number:</label>
-          <input
-            type="text"
-            value={manualFields.claimNumber}
-            onChange={(e) => handleManualFieldChange('claimNumber', e.target.value)}
-            placeholder="Enter claim number..."
-          />
-
           <label>Payment Type:</label>
           <select
             value={manualFields.paymentType}
@@ -2547,6 +2548,62 @@ const SettlementEmailBuilder = () => {
             <option value="Check">Check</option>
             <option value="EFT">EFT (Electronic Funds Transfer)</option>
           </select>
+
+          {/* Check delivery method - only show when Check is selected */}
+          {manualFields.paymentType === 'Check' && (
+            <>
+              <label>Check Delivery:</label>
+              <select
+                value={manualFields.checkDelivery}
+                onChange={(e) => handleManualFieldChange('checkDelivery', e.target.value)}
+              >
+                <option value="mail">Via Mail (3-5 business days)</option>
+                <option value="inPerson">In Person</option>
+              </select>
+            </>
+          )}
+
+          {/* Claim number - only show when EFT is selected */}
+          {manualFields.paymentType === 'EFT' && (
+            <>
+              <label>Claim Number:</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                <input
+                  type="text"
+                  value={manualFields.claimNumberPrefix}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    handleManualFieldChange('claimNumberPrefix', val);
+                  }}
+                  style={{ width: '70px', textAlign: 'center', marginBottom: 0 }}
+                  maxLength={3}
+                />
+                <span style={{ fontSize: '1.25rem', color: 'var(--light-text-color)' }}>-</span>
+                <input
+                  type="text"
+                  value={manualFields.claimNumberMiddle}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    handleManualFieldChange('claimNumberMiddle', val);
+                  }}
+                  placeholder="Enter #"
+                  style={{ flex: 1, textAlign: 'center', marginBottom: 0 }}
+                  maxLength={10}
+                />
+                <span style={{ fontSize: '1.25rem', color: 'var(--light-text-color)' }}>-</span>
+                <input
+                  type="text"
+                  value={manualFields.claimNumberSuffix}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    handleManualFieldChange('claimNumberSuffix', val);
+                  }}
+                  style={{ width: '80px', textAlign: 'center', marginBottom: 0 }}
+                  maxLength={4}
+                />
+              </div>
+            </>
+          )}
 
           <label>Non-Recoverable Depreciation Type:</label>
           <select
@@ -2690,15 +2747,23 @@ const SettlementEmailBuilder = () => {
         </div>
       )}
 
-      {/* Section 4: Generated Email */}
-      {generatedEmail && (
+      {/* Section 4: Email Preview with Copy Buttons */}
+      {generatedHtml && (
         <div className="section-card" style={{ marginBottom: '2rem' }}>
-          <h2>Generated Settlement Email</h2>
+          <h2>Email Preview</h2>
           <div style={{ paddingTop: '1rem' }}>
-            <textarea
-              value={generatedEmail}
-              onChange={(e) => setGeneratedEmail(e.target.value)}
-              style={{ minHeight: '400px', fontFamily: 'monospace', fontSize: '0.9rem' }}
+            <div
+              style={{
+                background: 'white',
+                padding: '1.5rem',
+                borderRadius: '12px',
+                border: '1px solid var(--border-color)',
+                fontFamily: 'Arial, sans-serif',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                marginBottom: '1rem'
+              }}
+              dangerouslySetInnerHTML={{ __html: generatedHtml }}
             />
             <div className="note-actions">
               <button
@@ -2716,27 +2781,6 @@ const SettlementEmailBuilder = () => {
                 {copyHtmlSuccess ? 'Copied!' : 'Copy HTML for Outlook'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Section 5: HTML Preview */}
-      {generatedHtml && (
-        <div className="section-card" style={{ marginBottom: '2rem' }}>
-          <h2>Email Preview (HTML)</h2>
-          <div style={{ paddingTop: '1rem' }}>
-            <div
-              style={{
-                background: 'white',
-                padding: '1.5rem',
-                borderRadius: '12px',
-                border: '1px solid var(--border-color)',
-                fontFamily: 'Arial, sans-serif',
-                fontSize: '14px',
-                lineHeight: '1.6'
-              }}
-              dangerouslySetInnerHTML={{ __html: generatedHtml }}
-            />
           </div>
         </div>
       )}
