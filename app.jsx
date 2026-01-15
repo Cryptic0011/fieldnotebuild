@@ -120,7 +120,7 @@ const InspectionBuilder = () => {
     subroDetails: 'No subro potential', showSubro: true,
     salvageDetails: 'No salvage potential', showSalvage: true,
     underwritingConcernsDetails: 'No underwriting concerns were noted during my inspection', showUnderwriting: true,
-    settledOnSite: 'No', settlementDetails: 'Estimate prepared on site, went over estimate, RD, supplement process. Advised of 2 years to complete repairs', paymentType: 'Check', sipIncluded: 'no'
+    settledOnSite: 'No', settlementDetails: 'Estimate prepared on site, went over estimate, RD, supplement process. Advised of 2 years to complete repairs. Emailed NI copy of estimate and ACV letter onsite.', paymentType: 'Check', sipIncluded: 'no'
   };
 
   const initialParticipants = [{ id: Date.now(), name: 'Insured' }];
