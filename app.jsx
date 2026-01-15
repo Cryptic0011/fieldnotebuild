@@ -2612,8 +2612,19 @@ const SettlementEmailBuilder = () => {
           <li>Generates HTML table for Outlook formatting</li>
         </ul>
         <p><strong>Note:</strong> This does not currently work with supplements as prior payments have not been added, and the template has not been configured for this.</p>
-        <p><strong>Example - Copy this format from Xactimate:</strong></p>
-        <img src="/public/images/settlement-example.png" alt="Settlement summary example from Xactimate" style={{ width: '100%', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '0.5rem' }} />
+        <p><strong>What to copy from Xactimate:</strong></p>
+        <div style={{ background: 'var(--background-color)', padding: '1rem', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'monospace', lineHeight: '1.4', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Summary for Cov A: Dwelling</div>
+          <div>Line Item Total: 5,691.45</div>
+          <div>Overhead: 566.91</div>
+          <div>Profit: 566.91</div>
+          <div>Replacement Cost Value: $6,893.06</div>
+          <div>Less Depreciation: (1,625.19)</div>
+          <div>Less Deductible: (634.02)</div>
+          <div>Net Claim Remaining: $1,101.95</div>
+          <div>Total Recoverable Depreciation: 1,625.19</div>
+        </div>
+        <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--light-text-color)' }}>Copy from the "Summary for..." section in your Xactimate estimate PDF or preview.</p>
       </InfoModal>
 
       {/* Clear Button at Top */}
