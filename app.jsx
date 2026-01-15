@@ -2306,7 +2306,8 @@ const SettlementEmailBuilder = () => {
         id: Date.now() + i,
         name: coverageName,
         type: coverageType,
-        rcv: rcv || (lineItemTotal + overhead + profit + salesTax),
+        // Ordinance or Law doesn't have RCV - only PWI
+        rcv: coverageType === 'ordinance' ? 0 : (rcv || (lineItemTotal + overhead + profit + salesTax)),
         depreciation,
         acv,
         deductible,
@@ -2314,8 +2315,8 @@ const SettlementEmailBuilder = () => {
         netClaim,
         recoverableDepreciation,
         nonRecoverableDepreciation,
-        // For Ordinance or Law - Paid When Incurred (use parsed value, or fallback to rcv for backwards compatibility)
-        paidWhenIncurred: coverageType === 'ordinance' ? (paidWhenIncurred || rcv) : 0,
+        // For Ordinance or Law - Paid When Incurred
+        paidWhenIncurred: coverageType === 'ordinance' ? paidWhenIncurred : 0,
       });
     }
 
@@ -2766,15 +2767,17 @@ const SettlementEmailBuilder = () => {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem' }}>RCV:</label>
-                    <input
-                      type="text"
-                      value={formatDollar(coverage.rcv)}
-                      onChange={(e) => handleCoverageChange(coverage.id, 'rcv', e.target.value)}
-                      style={{ marginBottom: '0.5rem' }}
-                    />
-                  </div>
+                  {coverage.type !== 'ordinance' && (
+                    <div>
+                      <label style={{ fontSize: '0.8rem' }}>RCV:</label>
+                      <input
+                        type="text"
+                        value={formatDollar(coverage.rcv)}
+                        onChange={(e) => handleCoverageChange(coverage.id, 'rcv', e.target.value)}
+                        style={{ marginBottom: '0.5rem' }}
+                      />
+                    </div>
+                  )}
 
                   {coverage.type !== 'ordinance' && (
                     <>
