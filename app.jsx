@@ -68,6 +68,13 @@ const App = () => {
         'Parse Dec pages and generate coverage analysis notes for claims.',
       component: CoverageAnalysisBuilder,
     },
+    {
+      id: 'settlement',
+      name: 'Settlement Email',
+      description:
+        'Generate settlement emails from Xactimate estimate summaries.',
+      component: SettlementEmailBuilder,
+    },
   ];
 
   const [activeTab, setActiveTab] = useState(apps[0].id);
@@ -2058,6 +2065,694 @@ const PhotoReportBuilder = () => {
       </div>
 
       {/* Preview removed */}
+    </div>
+  );
+};
+
+const SettlementEmailBuilder = () => {
+  const initialManualFields = {
+    insuredName: '',
+    paymentType: 'Check',
+    claimNumber: '',
+    nrcdType: 'none', // 'none', 'roof', 'pp' (personal property)
+  };
+
+  const [rawEstimateText, setRawEstimateText] = useState('');
+  const [coverages, setCoverages] = useState([]);
+  const [manualFields, setManualFields] = useState(initialManualFields);
+  const [generatedEmail, setGeneratedEmail] = useState('');
+  const [generatedHtml, setGeneratedHtml] = useState('');
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [copyHtmlSuccess, setCopyHtmlSuccess] = useState(false);
+
+  // Check if there are modifications to show clear button
+  const hasModifications = () => {
+    const manualFieldsChanged = JSON.stringify(manualFields) !== JSON.stringify(initialManualFields);
+    const hasCoverages = coverages.length > 0;
+    const hasRawText = rawEstimateText.trim().length > 0;
+    return manualFieldsChanged || hasCoverages || hasRawText;
+  };
+
+  // Load saved data from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('fieldnote_settlement_data');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.rawEstimateText) setRawEstimateText(data.rawEstimateText);
+        if (data.coverages) setCoverages(data.coverages);
+        if (data.manualFields) setManualFields(data.manualFields);
+      } catch (error) {
+        console.error('Failed to load saved settlement data:', error);
+      }
+    }
+    setHasLoadedFromStorage(true);
+  }, []);
+
+  // Auto-save to localStorage whenever data changes
+  useEffect(() => {
+    if (!hasLoadedFromStorage) return;
+
+    const dataToSave = {
+      rawEstimateText,
+      coverages,
+      manualFields,
+      savedAt: new Date().toISOString()
+    };
+
+    try {
+      localStorage.setItem('fieldnote_settlement_data', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('Failed to save settlement data:', error);
+    }
+  }, [rawEstimateText, coverages, manualFields, hasLoadedFromStorage]);
+
+  // ============ PARSING FUNCTIONS ============
+
+  // Helper to parse dollar amounts
+  const parseDollarAmount = (str) => {
+    if (!str) return 0;
+    const cleaned = str.replace(/[$,\s]/g, '').replace(/[()]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Helper to format dollar amounts
+  const formatDollar = (num) => {
+    return '$' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
+
+  // Parse Xactimate estimate summaries
+  const parseEstimateSummaries = (text) => {
+    const parsedCoverages = [];
+
+    // Split by "Summary for" to get each coverage section
+    const sections = text.split(/Summary\s+for\s+/i);
+
+    for (let i = 1; i < sections.length; i++) {
+      const section = sections[i];
+
+      // Get coverage name (first line or until newline)
+      const nameMatch = section.match(/^([^\n]+)/);
+      if (!nameMatch) continue;
+
+      let coverageName = nameMatch[1].trim();
+      // Clean up coverage name - remove location info like "(001: 1145 BARNES MILL RD)"
+      coverageName = coverageName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+      // Extract values using regex
+      const getValue = (pattern) => {
+        const match = section.match(pattern);
+        return match ? parseDollarAmount(match[1]) : 0;
+      };
+
+      // Parse different fields
+      const lineItemTotal = getValue(/Line\s+Item\s+Total\s+\$?([\d,.-]+)/i);
+      const overhead = getValue(/Overhead\s+\$?([\d,.-]+)/i);
+      const profit = getValue(/Profit\s+\$?([\d,.-]+)/i);
+      const salesTax = getValue(/(?:Material\s+)?Sales\s+Tax\s+\$?([\d,.-]+)/i);
+      const rcv = getValue(/Replacement\s+Cost\s+Value\s+\$?([\d,.-]+)/i);
+
+      // Depreciation - can be negative in parentheses or with minus
+      const depMatch = section.match(/Less\s+Depreciation\s+\(?([\d,.-]+)\)?/i);
+      const depreciation = depMatch ? Math.abs(parseDollarAmount(depMatch[1])) : 0;
+
+      const acv = getValue(/Actual\s+Cash\s+Value\s+\$?([\d,.-]+)/i);
+
+      // Deductible - can be negative
+      const dedMatch = section.match(/Less\s+Deductible\s+\(?([\d,.-]+)\)?/i);
+      const deductible = dedMatch ? Math.abs(parseDollarAmount(dedMatch[1])) : 0;
+
+      // Prior payments - can be negative
+      const priorMatch = section.match(/Less\s+Prior\s+Payment[s]?\s+\(?([\d,.-]+)\)?/i);
+      const priorPayments = priorMatch ? Math.abs(parseDollarAmount(priorMatch[1])) : 0;
+
+      // Net claim remaining
+      const netClaimMatch = section.match(/Net\s+Claim(?:\s+Remaining)?\s+\$?([\d,.-]+)/i);
+      const netClaim = netClaimMatch ? parseDollarAmount(netClaimMatch[1]) : 0;
+
+      // Recoverable depreciation
+      const recDepMatch = section.match(/(?:Total\s+)?Recoverable\s+Depreciation\s+\$?([\d,.-]+)/i);
+      const recoverableDepreciation = recDepMatch ? parseDollarAmount(recDepMatch[1]) : 0;
+
+      // Non-recoverable depreciation (if explicitly stated)
+      const nrcdMatch = section.match(/(?:Total\s+)?Non[- ]?Recoverable\s+Depreciation\s+\$?([\d,.-]+)/i);
+      const nonRecoverableDepreciation = nrcdMatch ? parseDollarAmount(nrcdMatch[1]) : 0;
+
+      // Determine coverage type for special handling
+      let coverageType = 'standard';
+      if (coverageName.match(/Ordinance\s+or\s+Law|O\s*&\s*L/i)) {
+        coverageType = 'ordinance';
+      } else if (coverageName.match(/Dwelling|Cov\s*A/i)) {
+        coverageType = 'dwelling';
+      } else if (coverageName.match(/Other\s+Structures|Cov\s*B/i)) {
+        coverageType = 'otherStructures';
+      } else if (coverageName.match(/Contents|Personal\s+Property|Cov\s*C/i)) {
+        coverageType = 'contents';
+      } else if (coverageName.match(/Equipment\s+Breakdown|Service\s+Line/i)) {
+        coverageType = 'equipmentBreakdown';
+      }
+
+      parsedCoverages.push({
+        id: Date.now() + i,
+        name: coverageName,
+        type: coverageType,
+        rcv: rcv || (lineItemTotal + overhead + profit + salesTax),
+        depreciation,
+        acv,
+        deductible,
+        priorPayments,
+        netClaim,
+        recoverableDepreciation,
+        nonRecoverableDepreciation,
+        // For Ordinance or Law - Paid When Incurred
+        paidWhenIncurred: coverageType === 'ordinance' ? rcv : 0,
+      });
+    }
+
+    return parsedCoverages;
+  };
+
+  // ============ HANDLER FUNCTIONS ============
+
+  const handleParseEstimate = () => {
+    const parsed = parseEstimateSummaries(rawEstimateText);
+    setCoverages(parsed);
+  };
+
+  const handleManualFieldChange = (field, value) => {
+    setManualFields(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCoverageChange = (id, field, value) => {
+    setCoverages(prev => prev.map(c =>
+      c.id === id ? { ...c, [field]: parseDollarAmount(value) } : c
+    ));
+  };
+
+  const removeCoverage = (id) => {
+    setCoverages(prev => prev.filter(c => c.id !== id));
+  };
+
+  const clearSettlementEmail = () => {
+    const confirmed = window.confirm('Are you sure? This will clear all settlement email data.');
+    if (confirmed) {
+      setRawEstimateText('');
+      setCoverages([]);
+      setManualFields(initialManualFields);
+      setGeneratedEmail('');
+      setGeneratedHtml('');
+      localStorage.removeItem('fieldnote_settlement_data');
+    }
+  };
+
+  // Copy plain text to clipboard
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedEmail);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  };
+
+  // Copy HTML to clipboard (for Outlook)
+  const copyHtmlToClipboard = async () => {
+    try {
+      const blob = new Blob([generatedHtml], { type: 'text/html' });
+      const clipboardItem = new ClipboardItem({ 'text/html': blob });
+      await navigator.clipboard.write([clipboardItem]);
+      setCopyHtmlSuccess(true);
+      setTimeout(() => setCopyHtmlSuccess(false), 2000);
+    } catch (error) {
+      // Fallback for browsers that don't support ClipboardItem
+      try {
+        await navigator.clipboard.writeText(generatedHtml);
+        setCopyHtmlSuccess(true);
+        setTimeout(() => setCopyHtmlSuccess(false), 2000);
+      } catch (fallbackError) {
+        console.error('Failed to copy HTML:', fallbackError);
+      }
+    }
+  };
+
+  // ============ EMAIL GENERATION ============
+
+  // Calculate totals
+  const getTotals = () => {
+    let totalNetClaim = 0;
+    let totalRecoverableDepreciation = 0;
+    let totalNonRecoverableDepreciation = 0;
+    let totalPaidWhenIncurred = 0;
+    let hasOrdinanceOrLaw = false;
+
+    coverages.forEach(c => {
+      totalNetClaim += c.netClaim || 0;
+      totalRecoverableDepreciation += c.recoverableDepreciation || 0;
+      totalNonRecoverableDepreciation += c.nonRecoverableDepreciation || 0;
+      if (c.type === 'ordinance') {
+        hasOrdinanceOrLaw = true;
+        totalPaidWhenIncurred += c.paidWhenIncurred || 0;
+      }
+    });
+
+    return {
+      totalNetClaim,
+      totalRecoverableDepreciation,
+      totalNonRecoverableDepreciation,
+      totalPaidWhenIncurred,
+      hasOrdinanceOrLaw
+    };
+  };
+
+  // Generate email content
+  useEffect(() => {
+    if (coverages.length === 0) {
+      setGeneratedEmail('');
+      setGeneratedHtml('');
+      return;
+    }
+
+    const totals = getTotals();
+    const { insuredName, paymentType, claimNumber, nrcdType } = manualFields;
+
+    // Build email sections
+    let emailParts = [];
+    let htmlParts = [];
+
+    // Opening
+    const salutation = insuredName ? `Mr. and Mrs. ${insuredName}` : 'Mr. and Mrs. [NAME]';
+    emailParts.push(`${salutation},\n\nAttached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
+
+    htmlParts.push(`<p>${salutation},</p><p>Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p>`);
+
+    // Payment method - CHECK
+    if (paymentType === 'Check') {
+      emailParts.push(`\nYour payment has been issued by check and should arrive within 3-5 business days in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.`);
+      htmlParts.push(`<p>Your payment has been issued by check and should arrive within 3-5 business days in person. If applicable your check may include your mortgage company and will require their endorsement. Please contact your mortgage company for details on their endorsement process.</p>`);
+    }
+
+    // Coverage breakdown header
+    emailParts.push(`\nBelow is a breakdown of the attached approved estimate:`);
+    htmlParts.push(`<p><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
+
+    // Build HTML table for coverages
+    let tableHtml = `<table style="border-collapse: collapse; width: 100%; max-width: 600px; font-family: Arial, sans-serif; margin: 16px 0;">`;
+
+    // Process each coverage
+    coverages.forEach(coverage => {
+      let coverageText = '';
+
+      if (coverage.type === 'ordinance') {
+        // Ordinance or Law - special format
+        coverageText = `\nSummary for ${coverage.name}:\nPaid when Incurred: ${formatDollar(coverage.paidWhenIncurred)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+
+        tableHtml += `
+          <tr style="background-color: #f8fafc;">
+            <td colspan="2" style="padding: 12px; font-weight: bold; border-bottom: 2px solid #2563eb; color: #1f2937;">Summary for ${coverage.name}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Paid when Incurred:</td>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #1f2937;">${formatDollar(coverage.paidWhenIncurred)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1f2937;">Net Claim:</td>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #2563eb;">${formatDollar(coverage.netClaim)}</td>
+          </tr>
+          <tr><td colspan="2" style="padding: 8px;"></td></tr>`;
+      } else {
+        // Standard coverage format - only show if there's depreciation
+        if (coverage.depreciation > 0) {
+          coverageText = `\nSummary for ${coverage.name} Replacement Cost:\n${formatDollar(coverage.rcv)}\nLess Recoverable Depreciation: ${formatDollar(coverage.recoverableDepreciation)}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+
+          tableHtml += `
+            <tr style="background-color: #f8fafc;">
+              <td colspan="2" style="padding: 12px; font-weight: bold; border-bottom: 2px solid #2563eb; color: #1f2937;">Summary for ${coverage.name} Replacement Cost</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Replacement Cost Value:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #1f2937;">${formatDollar(coverage.rcv)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Recoverable Depreciation:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.recoverableDepreciation)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Deductible:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.deductible)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1f2937;">Net Claim:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #2563eb;">${formatDollar(coverage.netClaim)}</td>
+            </tr>
+            <tr><td colspan="2" style="padding: 8px;"></td></tr>`;
+        } else {
+          // No depreciation - simpler format
+          coverageText = `\nSummary for ${coverage.name}:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+
+          tableHtml += `
+            <tr style="background-color: #f8fafc;">
+              <td colspan="2" style="padding: 12px; font-weight: bold; border-bottom: 2px solid #2563eb; color: #1f2937;">Summary for ${coverage.name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Replacement Cost Value:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #1f2937;">${formatDollar(coverage.rcv)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Deductible:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.deductible)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1f2937;">Net Claim:</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #2563eb;">${formatDollar(coverage.netClaim)}</td>
+            </tr>
+            <tr><td colspan="2" style="padding: 8px;"></td></tr>`;
+        }
+      }
+
+      emailParts.push(coverageText);
+    });
+
+    // Total initial payment row
+    tableHtml += `
+      <tr style="background-color: #2563eb;">
+        <td style="padding: 12px; font-weight: bold; color: white;">Total Initial Payment:</td>
+        <td style="padding: 12px; text-align: right; font-weight: bold; color: white;">${formatDollar(totals.totalNetClaim)}</td>
+      </tr>`;
+    tableHtml += `</table>`;
+
+    emailParts.push(`\nTotal Initial Payment: ${formatDollar(totals.totalNetClaim)}`);
+    htmlParts.push(tableHtml);
+
+    // Recoverable Depreciation section (only if there is RD)
+    if (totals.totalRecoverableDepreciation > 0) {
+      const rdText = `\nRecoverable depreciation in the amount of ${formatDollar(totals.totalRecoverableDepreciation)} has been withheld pending completion of repairs. To claim the recoverable depreciation, the repairs must be completed within two years from the date of loss. Once the work is completed, please submit the contractor's final invoice along with photos of the completed repairs. If approved, we will issue a payment for the recoverable depreciation or the actual cost of repairs incurred, whichever is less. More details regarding your recoverable depreciation are provided in the attached ACV letter.`;
+      emailParts.push(rdText);
+      htmlParts.push(`<p>${rdText.trim()}</p>`);
+    }
+
+    // Non-Recoverable Depreciation section (based on user selection)
+    if (nrcdType === 'roof' && totals.totalNonRecoverableDepreciation > 0) {
+      const nrcdRoofText = `\nNon-recoverable depreciation in the amount of ${formatDollar(totals.totalNonRecoverableDepreciation)} has been applied based on the age and condition of the damaged roofing materials. Your policy includes an Actual Cash Value Loss Settlement for Roof Surfacing Damaged by Windstorm or Hail endorsement, which applies ACV settlement to cladding, shingles, tiles, sheeting, flashing, or other materials used on or above the decking for protection from moisture. Therefore, depreciation on these items is not recoverable, and the settlement reflects the actual cash value at the time of loss.`;
+      emailParts.push(nrcdRoofText);
+      htmlParts.push(`<p>${nrcdRoofText.trim()}</p>`);
+    } else if (nrcdType === 'pp' && totals.totalNonRecoverableDepreciation > 0) {
+      const nrcdPPText = `\nNon-recoverable depreciation has been withheld in the amount of ${formatDollar(totals.totalNonRecoverableDepreciation)}. Your policy settles certain types of property such as personal property, structures that are not buildings, antennas, carpeting, awnings, domestic appliances, and outdoor equipment at actual cash value based on their age and condition at the time of loss. As a result, depreciation on these items is not recoverable.`;
+      emailParts.push(nrcdPPText);
+      htmlParts.push(`<p>${nrcdPPText.trim()}</p>`);
+    }
+
+    // Paid When Incurred / Ordinance or Law section (only if O&L exists)
+    if (totals.hasOrdinanceOrLaw && totals.totalPaidWhenIncurred > 0) {
+      const pwiText = `\nPaid when incurred code upgrades in the amount of ${formatDollar(totals.totalPaidWhenIncurred)} have been withheld pending installation. These items were not part of the original structure or repairs but are now required by current building codes. Code upgrade costs are payable when incurred, subject to policy limits. Once installed, please submit photographs of the code upgrade items. If approved, we will issue payment for the incurred code upgrade costs, up to the amount allowed.`;
+      emailParts.push(pwiText);
+      htmlParts.push(`<p>${pwiText.trim()}</p>`);
+    }
+
+    // Payment method - EFT
+    if (paymentType === 'EFT') {
+      const eftText = `\nWe are issuing your supplement payment electronically. You will receive an email from Auto Owners informing you that a payment has been issued. Following this email, you will receive an email from One Inc. with a link to accept payment. After you click Accept Payment, it will ask you for your claim number and it will require you to go through a verification process. The verification process is a pin sent via text message to your phone number on file. After verifying your identity, you will then be asked to enter either your debit card or checking account number and routing number. Once this information is given you will get message confirming everything is ok. If you do not see this email, please check your spam folder. For security reasons, you must follow the instructions in the email within 3 business days, or the transaction will be voided. If you don't see this email, please check your spam folder.`;
+      emailParts.push(eftText);
+      htmlParts.push(`<p>${eftText.trim()}</p>`);
+    }
+
+    // Claim number
+    const claimNum = claimNumber || 'xxxxx';
+    emailParts.push(`\nYour Claim # is: ${claimNum}`);
+    htmlParts.push(`<p><strong>Your Claim # is:</strong> ${claimNum}</p>`);
+
+    // One Inc contact info (only for EFT)
+    if (paymentType === 'EFT') {
+      emailParts.push(`\nIf you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.`);
+      htmlParts.push(`<p>If you have any questions or issues regarding your electronic payment and deposit, you can contact One, Inc. The customer service department will be able to better assist you. OneInc.'s customer service can be reached at (855) 682-1762.</p>`);
+    }
+
+    // Closing
+    emailParts.push(`\nIf you have any other questions related to your claim, please don't hesitate to contact me.`);
+    htmlParts.push(`<p>If you have any other questions related to your claim, please don't hesitate to contact me.</p>`);
+
+    // Disclaimer
+    const disclaimer = `\nAll rights, terms, conditions and exclusions in your policy are in full force and effect and are completely reserved. No action by any employee, agent, attorney or other person on behalf of Auto-Owners Insurance; or hired by Auto-Owners Insurance on your behalf; shall waive or be construed as having waived any rights, term, condition, exclusion or any other provision of the policy.`;
+    emailParts.push(disclaimer);
+    htmlParts.push(`<p style="font-size: 11px; color: #64748b; margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0;">${disclaimer.trim()}</p>`);
+
+    setGeneratedEmail(emailParts.join('\n'));
+    setGeneratedHtml(htmlParts.join(''));
+  }, [coverages, manualFields]);
+
+  // ============ RENDER ============
+
+  return (
+    <div>
+      {/* Clear Button at Top */}
+      {hasModifications() && (
+        <div className="section-card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <button
+            className="clear-inspection-btn"
+            onClick={clearSettlementEmail}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Settlement Email
+          </button>
+        </div>
+      )}
+
+      {/* Section 1: Manual Fields */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Settlement Details</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <label>Insured Name (Last Name):</label>
+          <input
+            type="text"
+            value={manualFields.insuredName}
+            onChange={(e) => handleManualFieldChange('insuredName', e.target.value)}
+            placeholder="e.g., Smith"
+          />
+
+          <label>Claim Number:</label>
+          <input
+            type="text"
+            value={manualFields.claimNumber}
+            onChange={(e) => handleManualFieldChange('claimNumber', e.target.value)}
+            placeholder="Enter claim number..."
+          />
+
+          <label>Payment Type:</label>
+          <select
+            value={manualFields.paymentType}
+            onChange={(e) => handleManualFieldChange('paymentType', e.target.value)}
+          >
+            <option value="Check">Check</option>
+            <option value="EFT">EFT (Electronic Funds Transfer)</option>
+          </select>
+
+          <label>Non-Recoverable Depreciation Type:</label>
+          <select
+            value={manualFields.nrcdType}
+            onChange={(e) => handleManualFieldChange('nrcdType', e.target.value)}
+          >
+            <option value="none">None / Not Applicable</option>
+            <option value="roof">ACV Roof Endorsement (Wind/Hail)</option>
+            <option value="pp">Personal Property / Other ACV Items</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Section 2: Estimate Parser */}
+      <div className="section-card" style={{ marginBottom: '2rem' }}>
+        <h2>Xactimate Estimate Parser</h2>
+        <div style={{ paddingTop: '1rem' }}>
+          <label>Paste Xactimate Summary Text:</label>
+          <textarea
+            value={rawEstimateText}
+            onChange={(e) => setRawEstimateText(e.target.value)}
+            placeholder="Paste the summary portion of your Xactimate estimate here..."
+            style={{ minHeight: '200px' }}
+          />
+          <button onClick={handleParseEstimate}>Parse Estimate</button>
+        </div>
+      </div>
+
+      {/* Section 3: Parsed Coverages */}
+      {coverages.length > 0 && (
+        <div className="section-card" style={{ marginBottom: '2rem' }}>
+          <h2>Parsed Coverages</h2>
+          <div style={{ paddingTop: '1rem' }}>
+            {coverages.map((coverage, index) => (
+              <div key={coverage.id} style={{
+                padding: '1rem',
+                marginBottom: '1rem',
+                background: 'var(--background-color)',
+                borderRadius: '12px',
+                border: '1px solid var(--border-color)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h4 style={{ margin: 0, color: 'var(--primary-color)' }}>{coverage.name}</h4>
+                  <button
+                    className="remove-btn"
+                    onClick={() => removeCoverage(coverage.id)}
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem' }}>RCV:</label>
+                    <input
+                      type="text"
+                      value={formatDollar(coverage.rcv)}
+                      onChange={(e) => handleCoverageChange(coverage.id, 'rcv', e.target.value)}
+                      style={{ marginBottom: '0.5rem' }}
+                    />
+                  </div>
+
+                  {coverage.type !== 'ordinance' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.8rem' }}>Recoverable Depreciation:</label>
+                        <input
+                          type="text"
+                          value={formatDollar(coverage.recoverableDepreciation)}
+                          onChange={(e) => handleCoverageChange(coverage.id, 'recoverableDepreciation', e.target.value)}
+                          style={{ marginBottom: '0.5rem' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.8rem' }}>Non-Recoverable Depreciation:</label>
+                        <input
+                          type="text"
+                          value={formatDollar(coverage.nonRecoverableDepreciation)}
+                          onChange={(e) => handleCoverageChange(coverage.id, 'nonRecoverableDepreciation', e.target.value)}
+                          style={{ marginBottom: '0.5rem' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label style={{ fontSize: '0.8rem' }}>Deductible:</label>
+                    <input
+                      type="text"
+                      value={formatDollar(coverage.deductible)}
+                      onChange={(e) => handleCoverageChange(coverage.id, 'deductible', e.target.value)}
+                      style={{ marginBottom: '0.5rem' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.8rem' }}>Net Claim:</label>
+                    <input
+                      type="text"
+                      value={formatDollar(coverage.netClaim)}
+                      onChange={(e) => handleCoverageChange(coverage.id, 'netClaim', e.target.value)}
+                      style={{ marginBottom: '0.5rem' }}
+                    />
+                  </div>
+
+                  {coverage.type === 'ordinance' && (
+                    <div>
+                      <label style={{ fontSize: '0.8rem' }}>Paid When Incurred:</label>
+                      <input
+                        type="text"
+                        value={formatDollar(coverage.paidWhenIncurred)}
+                        onChange={(e) => handleCoverageChange(coverage.id, 'paidWhenIncurred', e.target.value)}
+                        style={{ marginBottom: '0.5rem' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {/* Totals Summary */}
+            <div style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05))',
+              borderRadius: '12px',
+              border: '1px solid var(--primary-color)'
+            }}>
+              <h4 style={{ margin: '0 0 0.75rem 0' }}>Totals</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', fontSize: '0.9rem' }}>
+                <div><strong>Total Net Claim:</strong> {formatDollar(getTotals().totalNetClaim)}</div>
+                <div><strong>Total RD:</strong> {formatDollar(getTotals().totalRecoverableDepreciation)}</div>
+                <div><strong>Total NRCD:</strong> {formatDollar(getTotals().totalNonRecoverableDepreciation)}</div>
+                {getTotals().hasOrdinanceOrLaw && (
+                  <div><strong>Total PWI:</strong> {formatDollar(getTotals().totalPaidWhenIncurred)}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section 4: Generated Email */}
+      {generatedEmail && (
+        <div className="section-card" style={{ marginBottom: '2rem' }}>
+          <h2>Generated Settlement Email</h2>
+          <div style={{ paddingTop: '1rem' }}>
+            <textarea
+              value={generatedEmail}
+              onChange={(e) => setGeneratedEmail(e.target.value)}
+              style={{ minHeight: '400px', fontFamily: 'monospace', fontSize: '0.9rem' }}
+            />
+            <div className="note-actions">
+              <button
+                className="copy-btn"
+                onClick={copyToClipboard}
+                style={copySuccess ? { background: '#16a34a' } : {}}
+              >
+                {copySuccess ? 'Copied!' : 'Copy Plain Text'}
+              </button>
+              <button
+                className="copy-btn"
+                onClick={copyHtmlToClipboard}
+                style={copyHtmlSuccess ? { background: '#16a34a' } : { background: '#7c3aed' }}
+              >
+                {copyHtmlSuccess ? 'Copied!' : 'Copy HTML for Outlook'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section 5: HTML Preview */}
+      {generatedHtml && (
+        <div className="section-card" style={{ marginBottom: '2rem' }}>
+          <h2>Email Preview (HTML)</h2>
+          <div style={{ paddingTop: '1rem' }}>
+            <div
+              style={{
+                background: 'white',
+                padding: '1.5rem',
+                borderRadius: '12px',
+                border: '1px solid var(--border-color)',
+                fontFamily: 'Arial, sans-serif',
+                fontSize: '14px',
+                lineHeight: '1.6'
+              }}
+              dangerouslySetInnerHTML={{ __html: generatedHtml }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Clear Button at Bottom */}
+      {hasModifications() && (
+        <div className="section-card" style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <button
+            className="clear-inspection-btn"
+            onClick={clearSettlementEmail}
+            style={{ background: 'var(--danger-color)' }}
+          >
+            Clear Settlement Email
+          </button>
+        </div>
+      )}
     </div>
   );
 };

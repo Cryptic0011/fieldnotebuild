@@ -1,5 +1,5 @@
 // FieldNote Service Worker - Basic offline support
-const CACHE_NAME = 'fieldnote-cache-v1';
+const CACHE_NAME = 'fieldnote-cache-v2';
 const urlsToCache = [
   '/',
   '/index.html',
