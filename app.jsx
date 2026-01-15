@@ -729,7 +729,8 @@ const CoverageAnalysisBuilder = () => {
     const roofMatch = text.match(/((?:Asphalt|Metal|Tile|Slate|Wood|Shake|Composition|Architectural)\s+(?:Shingle\s+)?Roof)\s+(?:Updated|Replaced)?\s*(?:in\s+)?(\d{4})/i);
     if (roofMatch) {
       const roofInfo = roofMatch[2] ? `${roofMatch[1]} Updated in ${roofMatch[2]}` : roofMatch[1];
-      result = result ? `${result}\n${roofInfo}` : roofInfo;
+      // Use semicolon separator instead of newline for single-line input display
+      result = result ? `${result}; ${roofInfo}` : roofInfo;
     }
 
     return result;
@@ -737,31 +738,36 @@ const CoverageAnalysisBuilder = () => {
 
   // Parse SIP (Secured Interest Party) from SECURED INTERESTED PARTIES section
   const parseSIP = (text) => {
-    // Look for the section - handle various header formats including:
-    // "SECURED INTERESTED PARTIES"
-    // "SECURED INTERESTED PARTIES AND/OR ADDITIONAL INTERESTED PARTIES AND/OR ADDITIONAL INSUREDS"
-    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=\n\s*\n|Insurance\s+Score|Forms\s+That\s+Apply|TOTAL\s+POLICY|$)/i);
+    // First try to find a line with "Loan:" which typically contains the mortgagee name
+    // Format: "SERVICEMAC LLC Loan: 8010211369" or "PHH MORTGAGE SERVICES ISAOA Loan: xxx"
+    const loanLineMatch = text.match(/([A-Z][A-Z\s\/&.,]+(?:LLC|INC|CORP|BANK|SERVICES|MORTGAGE|ISAOA|ATIMA)?)\s+Loan:\s*\d+/i);
+    if (loanLineMatch) {
+      return loanLineMatch[1].trim();
+    }
+
+    // Look for the SECURED INTERESTED PARTIES section
+    const sipSection = text.match(/SECURED\s+INTERESTED\s+PARTIES[\s\S]*?(?=Insurance\s+Score|Forms\s+That\s+Apply|Page\s+\d|$)/i);
     if (sipSection) {
       const lines = sipSection[0].split('\n').map(l => l.trim()).filter(Boolean);
       // Skip header lines and find actual party name
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
-        // Skip section headers and common header words
-        if (line.match(/^(SECURED|INTERESTED|PARTIES|AND\/OR|ADDITIONAL|INSUREDS)/i)) continue;
-        // Skip if the entire line is part of the header
+        // Skip section headers
         if (line.match(/SECURED\s+INTERESTED\s+PARTIES/i)) continue;
         if (line.match(/ADDITIONAL\s+INTERESTED\s+PARTIES/i)) continue;
         if (line.match(/ADDITIONAL\s+INSUREDS/i)) continue;
+        if (line.match(/^AND\/OR/i)) continue;
         // Skip "See Schedule" references
         if (line.match(/See\s+Schedule/i)) continue;
         // Skip standalone words that are not party names
-        if (line.match(/^(TERM|TOTAL|PREMIUM|Company|Bill|Mkt|Terr)$/i)) continue;
+        if (line.match(/^(TERM|TOTAL|PREMIUM|Company|Bill|Mkt|Terr|TOTAL\s+POLICY)$/i)) continue;
         // Skip location markers like "Loc 001"
         if (line.match(/^Loc\s+\d+/i)) continue;
         // Skip interest type lines
         if (line.match(/^Interest:/i)) continue;
-        // Skip form references
+        // Skip form references and numbers
         if (line.match(/^Form:/i)) continue;
+        if (line.match(/^\d{5}\s+\(/)) continue; // Form numbers like "15560 (01-14)"
         // Skip loan numbers like "Loan: 2008993"
         if (line.match(/^Loan:/i)) continue;
         // Skip SIP-ID lines
@@ -771,13 +777,12 @@ const CoverageAnalysisBuilder = () => {
         if (line.match(/^\d+\s+[A-Z]/i)) continue; // Street addresses
         // Skip city/state/zip lines
         if (line.match(/^[A-Z]+\s+[A-Z]{2}\s+\d{5}/i)) continue;
-        // This should be the party name (bank name, etc.)
-        // If it contains "Loan:" extract just the name part before it
+        // If line contains "Loan:" extract just the name part before it
         if (line.match(/\s+Loan:/i)) {
           line = line.replace(/\s+Loan:.*$/i, '').trim();
         }
-        // Party names are usually longer and contain multiple words or uppercase letters
-        if (line.length > 3 && !line.match(/^\d+$/) && (line.includes(' ') || line === line.toUpperCase())) {
+        // Party names are usually all caps with multiple words (bank names)
+        if (line.length > 3 && !line.match(/^\d+$/) && line.match(/^[A-Z]/)) {
           return line;
         }
       }
