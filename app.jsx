@@ -2396,24 +2396,31 @@ const SettlementEmailBuilder = () => {
     let totalRecoverableDepreciation = 0;
     let totalNonRecoverableDepreciation = 0;
     let totalPaidWhenIncurred = 0;
+    let totalPriorPayments = 0;
     let hasOrdinanceOrLaw = false;
 
     coverages.forEach(c => {
       totalNetClaim += c.netClaim || 0;
       totalRecoverableDepreciation += c.recoverableDepreciation || 0;
       totalNonRecoverableDepreciation += c.nonRecoverableDepreciation || 0;
+      totalPriorPayments += c.priorPayments || 0;
       if (c.type === 'ordinance') {
         hasOrdinanceOrLaw = true;
         totalPaidWhenIncurred += c.paidWhenIncurred || 0;
       }
     });
 
+    // Detect if this is a supplement based on prior payments
+    const isSupplement = totalPriorPayments > 0;
+
     return {
       totalNetClaim,
       totalRecoverableDepreciation,
       totalNonRecoverableDepreciation,
       totalPaidWhenIncurred,
-      hasOrdinanceOrLaw
+      totalPriorPayments,
+      hasOrdinanceOrLaw,
+      isSupplement
     };
   };
 
@@ -2435,11 +2442,18 @@ const SettlementEmailBuilder = () => {
     let emailParts = [];
     let htmlParts = [];
 
-    // Opening
+    // Opening - different for initial vs supplement
     const salutation = insuredName ? `Mr. and Mrs. ${insuredName}` : 'Mr. and Mrs. [NAME]';
-    emailParts.push(`${salutation},\n\nAttached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
 
-    htmlParts.push(`<p>${salutation},</p><br><p>Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p><br>`);
+    if (totals.isSupplement) {
+      // Supplement opening
+      emailParts.push(`${salutation},\n\nI hope this email finds you well. Attached is a copy of our updated estimate for repairs. Your contractor has submitted an estimate, which has been reviewed, and we have updated our estimate accordingly. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
+      htmlParts.push(`<p>${salutation},</p><br><p>I hope this email finds you well. Attached is a copy of our updated estimate for repairs. Your contractor has submitted an estimate, which has been reviewed, and we have updated our estimate accordingly. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p><br>`);
+    } else {
+      // Initial payment opening
+      emailParts.push(`${salutation},\n\nAttached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.`);
+      htmlParts.push(`<p>${salutation},</p><br><p>Attached is the approved estimate for the repairs to your dwelling. Please provide the approved estimate to the contractor of your choice. If your contractor has issues/concerns with the attached approved estimate, then please advise your contractor to submit an itemized estimate for review. Please be advised that any work performed above and beyond what is outlined in the attached approved estimate without prior approval from Auto-Owners Insurance Company could cause coverage concerns.</p><br>`);
+    }
 
     // Payment method - CHECK
     if (paymentType === 'Check') {
@@ -2452,9 +2466,12 @@ const SettlementEmailBuilder = () => {
       }
     }
 
-    // Coverage breakdown header
-    emailParts.push(`\nBelow is a breakdown of the attached approved estimate:`);
-    htmlParts.push(`<p><strong>Below is a breakdown of the attached approved estimate:</strong></p>`);
+    // Coverage breakdown header - different wording for supplement
+    const breakdownHeader = totals.isSupplement
+      ? 'Below is a breakdown of the attached approved revised estimate:'
+      : 'Below is a breakdown of the attached approved estimate:';
+    emailParts.push(`\n${breakdownHeader}`);
+    htmlParts.push(`<p><strong>${breakdownHeader}</strong></p>`);
 
     // Build HTML table for coverages
     let tableHtml = `<table style="border-collapse: collapse; width: 100%; max-width: 600px; font-family: Arial, sans-serif; font-size: 11pt; margin: 0 0 11pt 0;">`;
@@ -2483,7 +2500,7 @@ const SettlementEmailBuilder = () => {
       } else {
         // Standard coverage format - only show if there's depreciation
         if (coverage.depreciation > 0) {
-          coverageText = `\nSummary for ${coverage.name} Replacement Cost:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Recoverable Depreciation: ${formatDollar(coverage.recoverableDepreciation)}${coverage.nonRecoverableDepreciation > 0 ? `\nLess Non-Recoverable Depreciation: ${formatDollar(coverage.nonRecoverableDepreciation)}` : ''}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+          coverageText = `\nSummary for ${coverage.name} Replacement Cost:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Recoverable Depreciation: ${formatDollar(coverage.recoverableDepreciation)}${coverage.nonRecoverableDepreciation > 0 ? `\nLess Non-Recoverable Depreciation: ${formatDollar(coverage.nonRecoverableDepreciation)}` : ''}\nLess Deductible: ${formatDollar(coverage.deductible)}${coverage.priorPayments > 0 ? `\nLess Prior Payment(s): ${formatDollar(coverage.priorPayments)}` : ''}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
 
           tableHtml += `
             <tr style="background-color: #f8fafc;">
@@ -2505,6 +2522,10 @@ const SettlementEmailBuilder = () => {
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Deductible:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.deductible)}</td>
             </tr>
+            ${coverage.priorPayments > 0 ? `<tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Prior Payment(s):</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.priorPayments)}</td>
+            </tr>` : ''}
             <tr>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1f2937;">Net Claim:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #2563eb;">${formatDollar(coverage.netClaim)}</td>
@@ -2512,7 +2533,7 @@ const SettlementEmailBuilder = () => {
             <tr><td colspan="2" style="padding: 8px;"></td></tr>`;
         } else {
           // No depreciation - simpler format
-          coverageText = `\nSummary for ${coverage.name}:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Deductible: ${formatDollar(coverage.deductible)}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
+          coverageText = `\nSummary for ${coverage.name}:\nReplacement Cost Value: ${formatDollar(coverage.rcv)}\nLess Deductible: ${formatDollar(coverage.deductible)}${coverage.priorPayments > 0 ? `\nLess Prior Payment(s): ${formatDollar(coverage.priorPayments)}` : ''}\nNet Claim: ${formatDollar(coverage.netClaim)}`;
 
           tableHtml += `
             <tr style="background-color: #f8fafc;">
@@ -2526,6 +2547,10 @@ const SettlementEmailBuilder = () => {
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Deductible:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.deductible)}</td>
             </tr>
+            ${coverage.priorPayments > 0 ? `<tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">Less Prior Payment(s):</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #dc2626;">${formatDollar(coverage.priorPayments)}</td>
+            </tr>` : ''}
             <tr>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1f2937;">Net Claim:</td>
               <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #2563eb;">${formatDollar(coverage.netClaim)}</td>
@@ -2537,16 +2562,24 @@ const SettlementEmailBuilder = () => {
       emailParts.push(coverageText);
     });
 
-    // Total initial payment row
+    // Total payment row - changes label based on initial vs supplement
+    const paymentLabel = totals.isSupplement ? 'Total Supplemental Payment' : 'Total Initial Payment';
     tableHtml += `
       <tr style="background-color: #2563eb;">
-        <td style="padding: 12px; font-weight: bold; color: white;">Total Initial Payment:</td>
+        <td style="padding: 12px; font-weight: bold; color: white;">${paymentLabel}:</td>
         <td style="padding: 12px; text-align: right; font-weight: bold; color: white;">${formatDollar(totals.totalNetClaim)}</td>
       </tr>`;
     tableHtml += `</table>`;
 
-    emailParts.push(`\nTotal Initial Payment: ${formatDollar(totals.totalNetClaim)}`);
+    emailParts.push(`\n${paymentLabel}: ${formatDollar(totals.totalNetClaim)}`);
     htmlParts.push(tableHtml);
+
+    // Supplement-specific net claim explanation
+    if (totals.isSupplement) {
+      const supplementText = `\nThe net claim payment of ${formatDollar(totals.totalNetClaim)} is the supplemental payment and will be issued via ${paymentType === 'EFT' ? 'electronic payment' : 'check'}.`;
+      emailParts.push(supplementText);
+      htmlParts.push(`<p>The net claim payment of <strong>${formatDollar(totals.totalNetClaim)}</strong> is the supplemental payment and will be issued via ${paymentType === 'EFT' ? 'electronic payment' : 'check'}.</p><br>`);
+    }
 
     // Recoverable Depreciation section (only if there is RD)
     if (totals.totalRecoverableDepreciation > 0) {
@@ -2820,6 +2853,18 @@ const SettlementEmailBuilder = () => {
                     />
                   </div>
 
+                  {coverage.type !== 'ordinance' && (
+                    <div>
+                      <label style={{ fontSize: '0.8rem' }}>Prior Payments:</label>
+                      <input
+                        type="text"
+                        value={formatDollar(coverage.priorPayments)}
+                        onChange={(e) => handleCoverageChange(coverage.id, 'priorPayments', e.target.value)}
+                        style={{ marginBottom: '0.5rem' }}
+                      />
+                    </div>
+                  )}
+
                   <div>
                     <label style={{ fontSize: '0.8rem' }}>Net Claim:</label>
                     <input
@@ -2852,11 +2897,26 @@ const SettlementEmailBuilder = () => {
               borderRadius: '12px',
               border: '1px solid var(--primary-color)'
             }}>
-              <h4 style={{ margin: '0 0 0.75rem 0' }}>Totals</h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h4 style={{ margin: 0 }}>Totals</h4>
+                {getTotals().isSupplement && (
+                  <span style={{
+                    background: 'var(--warning-color, #f59e0b)',
+                    color: 'white',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold'
+                  }}>SUPPLEMENT DETECTED</span>
+                )}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', fontSize: '0.9rem' }}>
                 <div><strong>Total Net Claim:</strong> {formatDollar(getTotals().totalNetClaim)}</div>
                 <div><strong>Total RD:</strong> {formatDollar(getTotals().totalRecoverableDepreciation)}</div>
                 <div><strong>Total NRCD:</strong> {formatDollar(getTotals().totalNonRecoverableDepreciation)}</div>
+                {getTotals().isSupplement && (
+                  <div><strong>Total Prior Payments:</strong> {formatDollar(getTotals().totalPriorPayments)}</div>
+                )}
                 {getTotals().hasOrdinanceOrLaw && (
                   <div><strong>Total PWI:</strong> {formatDollar(getTotals().totalPaidWhenIncurred)}</div>
                 )}
