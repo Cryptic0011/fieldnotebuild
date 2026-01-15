@@ -2268,8 +2268,8 @@ const SettlementEmailBuilder = () => {
       const dedMatch = section.match(/Less\s+Deductible\s+\(?([\d,.-]+)\)?/i);
       const deductible = dedMatch ? Math.abs(parseDollarAmount(dedMatch[1])) : 0;
 
-      // Prior payments - can be negative
-      const priorMatch = section.match(/Less\s+Prior\s+Payment[s]?\s+\(?([\d,.-]+)\)?/i);
+      // Prior payments - can be negative, handles "Payments", "Payment(s)", or "Payment"
+      const priorMatch = section.match(/Less\s+Prior\s+Payment(?:s|\(s\))?\s+\(?([\d,.-]+)\)?/i);
       const priorPayments = priorMatch ? Math.abs(parseDollarAmount(priorMatch[1])) : 0;
 
       // Net claim remaining
